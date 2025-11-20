@@ -31,7 +31,8 @@ def run_command(command, quiet=False, flush_output=False, cwd=None):
                 cwd=os.getcwd() if cwd is None else cwd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True
+                universal_newlines=True,
+                close_fds=False
             )
             output = ''
             for line in process.stdout:
@@ -54,7 +55,8 @@ def run_command(command, quiet=False, flush_output=False, cwd=None):
             stderr=subprocess.STDOUT,
             shell=True,
             check=False,
-            universal_newlines=True
+            universal_newlines=True,
+            close_fds=False
         )
         if not quiet:
             stdout_logger.log(result.stdout)
