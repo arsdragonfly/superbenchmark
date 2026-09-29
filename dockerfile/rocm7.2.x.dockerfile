@@ -276,4 +276,5 @@ RUN python3 -m pip install .[amdworker]  && \
 
 # Fix stale hypothesis plugin from base image (imports removed pkg_resources)
 # and add test dependencies missing from the base image.
-RUN python3 -m pip install --upgrade hypothesis setuptools pytest-timeout vcrpy
+RUN python3 -m pip install --upgrade hypothesis setuptools pytest-timeout vcrpy && \
+    python3 -m pip check

@@ -136,12 +136,35 @@ An image build alone does not qualify either GPU architecture. On an otherwise
 idle GPU node, expose `/dev/kfd` and `/dev/dri` to the container and check:
 
 * Device enumeration, architecture names, and loaded ROCm/RCCL library paths.
+* `python3 -m pip check` (also enforced at build time). The Megatron requirements
+  must not downgrade `typing_extensions` below the vendor image's dependencies.
 * PyTorch GEMM and attention correctness, including backward passes, and
   TransformerEngine execution (not just its import).
 * SuperBench `gemm-flops`, `hipblaslt-gemm`, `mem-bw`, and `gpu-copy-bw`, including
   successful result parsing and finite, positive metrics.
 * RCCL collectives with data checking on all local GPUs. Multi-node RCCL and
   RDMA require separate network validation.
+
+#### MI300X sanity-check snapshot (2026-09-29)
+
+Both Dockerfiles were built with `NUM_MAKE_JOBS=32` and their default
+`gfx942 gfx950` targets, then tested on one eight-GPU MI300X node:
+
+* Each image passed `pip check` and 27 targeted regression tests, with three
+  NVIDIA-only tests skipped.
+* All eight GPUs passed FP32, FP16 and BF16 GEMM correctness checks.
+  TransformerEngine Linear and PyTorch flash SDPA passed FP16/BF16
+  forward/backward checks.
+* Live SuperBench rocBLAS GEMM, hipBLASLt GEMM (including FP8), host/device
+  memory bandwidth and SM/DMA copy tests produced successfully parsed,
+  finite, positive metrics; copy data checking was enabled.
+* Eight-GPU RCCL all-reduce from 8 bytes through 16 MiB reported zero
+  validation errors. RCCL and HIP resolved to the intended image libraries.
+* Offload-bundle inspection confirmed gfx942 and gfx950 code in `gpu_copy`
+  and `all_reduce_perf`.
+
+These are functional smoke tests, not performance qualification. MI355X,
+MI455X/gfx125x, multi-node RDMA, and sustained stress were not tested.
 
 ### ROCm 10 migration considerations
 
