@@ -171,6 +171,26 @@ class PytorchMNIST(PytorchBase):
 
 
 @decorator.pytorch_test
+def test_pytorch_dataloader_workers():
+    """Test default in-process loading and explicit worker overrides across epochs."""
+    for worker_parameters, expected_workers in [('', 0), ('--num_workers 2', 2)]:
+        parameters = '--batch_size 2 --num_warmup 0 --num_steps 2 --no_gpu ' + worker_parameters
+        benchmark = PytorchMNIST('pytorch-mnist', parameters=parameters)
+        assert (benchmark._preprocess())
+        assert (benchmark._args.num_workers == expected_workers)
+        assert (benchmark._dataloader.num_workers == expected_workers)
+        assert (benchmark._dataset._data.device.type == 'cpu')
+
+        for _ in range(2):
+            batches = list(benchmark._dataloader)
+            assert (len(batches) == 2)
+            assert (all(batch.shape == (2, 1, 28, 28) for batch in batches))
+            assert (torch.equal(torch.cat(batches), benchmark._dataset._data))
+
+        assert (benchmark._postprocess())
+
+
+@decorator.pytorch_test
 def test_pytorch_base():
     """Test PytorchBase class."""
     # Register mnist benchmark.

@@ -32,6 +32,11 @@ including the following categories:
 For inference, supported percentiles include
 50<sup>th</sup>, 90<sup>th</sup>, 95<sup>th</sup>, 99<sup>th</sup>, and 99.9<sup>th</sup>.
 
+These PyTorch benchmarks default to `--num_workers 0`: synthetic samples are
+already generated in CPU memory, so loading batches in each training process avoids
+worker startup and interprocess communication overhead. GPU count and distributed
+sampling are unchanged. An explicit `--num_workers` value overrides this default.
+
 **New: Support fp8_hybrid and fp8_e4m3 precision for BERT models.**
 
 **New: Deterministic Training Support**

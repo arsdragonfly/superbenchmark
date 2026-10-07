@@ -131,6 +131,8 @@ class PytorchBase(ModelBenchmark):
     def add_parser_arguments(self):
         """Add PyTorch model benchmark-specific arguments to the argument parser."""
         super().add_parser_arguments()
+        # Synthetic samples already reside in CPU memory; avoid per-epoch worker startup and IPC overhead.
+        self._parser.set_defaults(num_workers=0)
         self._parser.add_argument(
             '--deterministic_seed',
             type=int,
