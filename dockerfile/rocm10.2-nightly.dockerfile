@@ -381,7 +381,7 @@ RUN CXX="${ROCM_PATH}/bin/hipcc" make cppbuild && \
     make postinstall
 
 RUN python3 -m pip check && \
-    python3 -c 'import transformer_engine.pytorch, aiter, megatron.core, flydsl; print("Framework imports passed")' && \
+    python3 -c 'import transformer_engine.pytorch, flydsl; from importlib.metadata import version; print({name: version(name) for name in ("amd-aiter", "megatron-core")}); print("CPU-safe framework imports passed; AITER/Megatron GPU checks remain required")' && \
     test -x "${SB_HOME}/bin/dist_inference" && \
     sb --help && \
     rm /tmp/rocm10-constraints.txt && \

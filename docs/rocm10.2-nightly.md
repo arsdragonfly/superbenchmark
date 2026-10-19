@@ -63,6 +63,10 @@ at build and runtime. The profile enables `NVTE_ROCM_UNFUSED_FP32_BGRAD=1`.
 Ordinary PyTorch GEMMs use the explicit rocBLAS profile; TE FP8 and native
 hipBLASLt calls retain their own backend.
 
+AITER performs native GPU discovery/JIT work when imported. CPU image builds
+check its installed distribution and dependencies, not a simulated GPU import;
+AITER and Megatron runtime imports are checked on the GPU node.
+
 ## Build from source
 
 Run from a checkout of the experimental branch. Only the native submodules
