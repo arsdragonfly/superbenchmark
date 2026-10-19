@@ -135,7 +135,9 @@ The helper never reboots the machine automatically.
 
 `--only <case> ...` runs an explicit subset into a new output directory. A
 failed case, missing rank result, invalid metric or failed RCCL correctness
-check is not converted into a pass.
+check is not converted into a pass. RCCL correctness summaries are checked in
+each invocation's captured console; SuperBench's result JSON can legitimately
+have an empty `raw_data` field.
 
 ## Minimum work and coverage
 

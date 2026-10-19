@@ -151,14 +151,13 @@ def verify_benchmark(benchmark, rank):
         if any(not math.isfinite(number) for number in numbers):
             raise RuntimeError(f'Nonfinite {key} on rank {rank}')
         metrics += len(numbers)
-    return metrics, json.dumps(benchmark.get('raw_data', {}))
+    return metrics
 
 
 def verify_results(case, ranks, name):
     """Require complete rank results and explicit RCCL correctness evidence."""
     results = []
     metrics = 0
-    raw = []
     for rank in ranks:
         files = list((case / 'sb/benchmarks').glob(f'*/rank{rank}/results.json'))
         if len(files) != 1:
@@ -167,16 +166,18 @@ def verify_results(case, ranks, name):
         if not benchmarks:
             raise RuntimeError(f'Empty results for rank {rank}')
         for benchmark in benchmarks:
-            count, text = verify_benchmark(benchmark, rank)
-            metrics += count
-            raw.append(text)
+            metrics += verify_benchmark(benchmark, rank)
         results.append({'rank': rank, 'benchmarks': benchmarks})
     if metrics == 0:
         raise RuntimeError('No numeric benchmark metrics were produced')
     if name.startswith('rccl-bw:'):
-        checks = re.findall(r'Out of bounds values\s*:\s*(\d+)', '\n'.join(raw))
-        if not checks or any(int(value) for value in checks):
-            raise RuntimeError(f'Missing or failed RCCL correctness checks: {checks}')
+        for rank in ranks:
+            console = case / f'rank{rank}-console.log'
+            if not console.is_file():
+                raise RuntimeError(f'Missing RCCL console for rank {rank}')
+            checks = re.findall(r'Out of bounds values\s*:\s*(\d+)', console.read_text())
+            if not checks or any(int(value) for value in checks):
+                raise RuntimeError(f'Missing or failed RCCL correctness checks on rank {rank}: {checks}')
     return results
 
 

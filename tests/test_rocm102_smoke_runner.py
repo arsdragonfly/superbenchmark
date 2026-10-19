@@ -98,19 +98,33 @@ class Rocm102SmokeRunnerTest(unittest.TestCase):
 
     def test_rccl_correctness_is_required(self):
         """Check the numerical verification summary, not only the process status."""
-        for raw, passed in (
-            ({'output': ['# Out of bounds values : 0 OK']}, True),
-            ({'output': ['# Out of bounds values : 1 FAILED']}, False),
-            ({}, False),
+        for output, passed in (
+            ('[0]: # Out of bounds values : 0 OK\n', True),
+            ('[0]: # Out of bounds values : 1 FAILED\n', False),
+            ('', False),
+            (None, False),
         ):
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as directory:
+            with self.subTest(output=output), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                self.write_result(root, 0, {'return_code': [0], 'bw': [1.0]}, raw)
+                self.write_result(root, 0, {'return_code': [0], 'bw': [1.0]})
+                if output is not None:
+                    (root / 'rank0-console.log').write_text(output)
                 if passed:
                     self.assertEqual(len(runner.verify_results(root, [0], 'rccl-bw:allreduce')), 1)
                 else:
                     with self.assertRaises(RuntimeError):
                         runner.verify_results(root, [0], 'rccl-bw:allreduce')
+
+    def test_rccl_correctness_is_required_for_every_invocation(self):
+        """One successful console cannot hide missing verification on another rank."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for rank in (0, 1):
+                self.write_result(root, rank, {'return_code': [0], 'bw': [1.0]})
+            (root / 'rank0-console.log').write_text('# Out of bounds values : 0 OK\n')
+            (root / 'rank1-console.log').write_text('')
+            with self.assertRaises(RuntimeError):
+                runner.verify_results(root, [0, 1], 'rccl-bw:allreduce')
 
 
 if __name__ == '__main__':
