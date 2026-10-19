@@ -49,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && git -C /src/llvm-project fetch --depth 1 --filter=blob:none origin 5f07f818b51b786b0a87b4e514882600ecba112f \
     && git -C /src/llvm-project checkout --detach FETCH_HEAD
 COPY dockerfile/rocm10.2-nightly/llvm-unsigned-offset.patch /src/llvm-fix.patch
-RUN echo "4339f2c8cb6103d2e6d6471c22ad8c241a7284d47529c1fd3803505f2a4a48ea  /src/llvm-fix.patch" | sha256sum -c \
+RUN echo "5653cbd792aa071647e307b39e932d8fbd2e39bf9d7aa9e4115b3ebce508bf07  /src/llvm-fix.patch" | sha256sum -c \
     && git -C /src/llvm-project apply --check --include='llvm/lib/Target/AMDGPU/*' /src/llvm-fix.patch \
     && git -C /src/llvm-project apply --include='llvm/lib/Target/AMDGPU/*' /src/llvm-fix.patch \
     && cmake -S /src/llvm-project/llvm -B /build/llvm -G Ninja \

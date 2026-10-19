@@ -3,3 +3,6 @@
 # Source files
 bin/*       text
 *.py        text diff=python
+
+# A blank context line in a patch includes a required space prefix.
+*.patch     text whitespace=-blank-at-eol
