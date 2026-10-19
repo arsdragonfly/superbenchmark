@@ -4,6 +4,8 @@
 """Tests for distributed inference benchmark."""
 
 import unittest
+from argparse import Namespace
+from unittest import mock
 
 from tests.helper import decorator
 from tests.helper.testcase import BenchmarkTestCase
@@ -14,6 +16,39 @@ from superbench.benchmarks \
 from superbench.benchmarks.micro_benchmarks.dist_inference \
     import DistInference, ComputationKernelType, CommunicationKernelType, ActivationKernelType
 from superbench.common.utils import network
+
+
+class DistInferencePytorchExecutionTest(unittest.TestCase):
+    """Exercise eager and graph dispatch without requiring a GPU."""
+
+    def test_graph_is_captured_and_replayed(self):
+        """The PyTorch graph option must not silently execute eager inference."""
+        benchmark = DistInference('pytorch-dist-inference')
+        benchmark._args = Namespace(use_cuda_graph=True, num_steps=2)
+        model = mock.Mock()
+        with mock.patch('torch.cuda.CUDAGraph') as graph, \
+                mock.patch('torch.cuda.graph') as capture, \
+                mock.patch('torch.cuda.synchronize') as synchronize, \
+                mock.patch.object(benchmark, '_DistInference__timer', side_effect=[0., 0.001, 0.001, 0.003]):
+            times = benchmark._run_model(model, 1, 16, Precision.FLOAT32, None, 1, 2)
+        self.assertEqual(model.call_count, 2)
+        graph.assert_called_once_with()
+        capture.assert_called_once_with(graph.return_value)
+        self.assertEqual(graph.return_value.replay.call_count, 2)
+        synchronize.assert_called_once_with()
+        self.assertEqual(times, [1., 2.])
+
+    def test_eager_path_keeps_one_call_per_step(self):
+        """Default eager execution needs neither capture nor a graph warmup."""
+        benchmark = DistInference('pytorch-dist-inference')
+        benchmark._args = Namespace(use_cuda_graph=False, num_steps=1)
+        model = mock.Mock()
+        with mock.patch('torch.cuda.CUDAGraph') as graph, \
+                mock.patch.object(benchmark, '_DistInference__timer', side_effect=[0., 0.001]):
+            times = benchmark._run_model(model, 1, 16, Precision.FLOAT32, None, 0, 1)
+        model.assert_called_once()
+        graph.assert_not_called()
+        self.assertEqual(times, [1.])
 
 
 # TODO - replace unittest.skip("no multiple GPUs") to decorator of skipIfNoMultiGPUS

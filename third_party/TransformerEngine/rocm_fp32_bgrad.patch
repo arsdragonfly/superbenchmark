@@ -1,0 +1,18 @@
+diff --git a/transformer_engine/pytorch/module/base.py b/transformer_engine/pytorch/module/base.py
+--- a/transformer_engine/pytorch/module/base.py
++++ b/transformer_engine/pytorch/module/base.py
+@@ -1380,6 +1380,14 @@ class TransformerEngineBaseModule(torch.nn.Module):
+                         None,
+                         ctx.tp_group,
+                     )
++            # The basic A0 library has no fused FP32 wgrad+bgrad solution.
++            if (
++                IS_HIP_EXTENSION
++                and ctx.use_bias
++                and grad_output.dtype == torch.float32
++                and os.getenv("NVTE_ROCM_UNFUSED_FP32_BGRAD", "0") == "1"
++            ):
++                return grad_output, grad_output.sum(dim=0)
+             return grad_output, None
+ 
+         # FP8 with all-gather: unfused bgrad, fused cast + transpose

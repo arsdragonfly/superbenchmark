@@ -415,14 +415,27 @@ class DistInference(MicroBenchmarkWithInvoke):
         for i in range(num_warmup):
             model(data)
 
+        graph = None
+        graph_output = None
+        if self._args.use_cuda_graph:
+            torch.cuda.synchronize()
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph):
+                graph_output = model(data)
+
         # run and collect results
         step_times = [0.] * num_steps
-        for i in range(self._args.num_steps):
+        for i in range(num_steps):
             start = self.__timer()
-            model(data)
+            if graph is None:
+                model(data)
+            else:
+                graph.replay()
             end = self.__timer()
             step_times[i] = (end - start) * 1000
 
+        # Captured output storage must remain alive until the final replay completes.
+        del graph_output
         return step_times
 
     def _process_data(self, step_times):

@@ -10,6 +10,7 @@ from datetime import timedelta
 
 import torch
 import transformers
+from transformers.pytorch_utils import Conv1D
 try:
     import transformer_engine.pytorch as te
 except ImportError:
@@ -292,7 +293,7 @@ class PytorchBase(ModelBenchmark):
     def _to_te_model(self, model):
         """Convert the input model to Transformer Engine model.
 
-        Replace all Linear/LayerNorm layers.
+        Replace aligned Linear/Conv1D and LayerNorm layers.
         Modified based on Huggingface's utils `accelerate.accelerator.convert_model`, reference:
         https://github.com/huggingface/accelerate/blob/v0.17.1/src/accelerate/utils/transformer_engine.py#L24
 
@@ -302,12 +303,18 @@ class PytorchBase(ModelBenchmark):
         if not te:
             return
         for name, m in model.named_children():
-            if isinstance(m, torch.nn.Linear):
+            if isinstance(m, (torch.nn.Linear, Conv1D)):
                 # check 16-byte alignment
                 if any(p % 16 != 0 for p in m.weight.shape):
-                    return
-                te_m = te.Linear(m.in_features, m.out_features, bias=(m.bias is not None), params_dtype=m.weight.dtype)
-                te_m.weight.copy_(m.weight)
+                    continue
+                if isinstance(m, Conv1D):
+                    in_features, out_features = m.weight.shape
+                    weight = m.weight.t()
+                else:
+                    in_features, out_features = m.in_features, m.out_features
+                    weight = m.weight
+                te_m = te.Linear(in_features, out_features, bias=(m.bias is not None), params_dtype=m.weight.dtype)
+                te_m.weight.copy_(weight)
                 if m.bias is not None:
                     te_m.bias.copy_(m.bias)
                 setattr(model, name, te_m)

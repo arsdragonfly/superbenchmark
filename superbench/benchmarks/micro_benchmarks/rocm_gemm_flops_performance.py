@@ -6,7 +6,7 @@
 import os
 
 from superbench.common.utils import logger
-from superbench.benchmarks import BenchmarkRegistry, Platform
+from superbench.benchmarks import BenchmarkRegistry, Platform, ReturnCode
 from superbench.benchmarks.micro_benchmarks import GemmFlopsBenchmark
 
 
@@ -35,6 +35,14 @@ class RocmGemmFlopsBenchmark(GemmFlopsBenchmark):
         """Add the specified arguments."""
         super().add_parser_arguments()
 
+        # Preserve native client defaults unless iteration counts are explicitly supplied.
+        self._parser.set_defaults(num_warmup=None)
+        self._parser.add_argument(
+            '--num_steps',
+            type=int,
+            default=None,
+            help='Number of measured calls; omit to keep the rocBLAS client default.',
+        )
         self._parser.add_argument(
             '--transposeA',
             type=str.upper,
@@ -109,6 +117,12 @@ class RocmGemmFlopsBenchmark(GemmFlopsBenchmark):
         if not super()._preprocess():
             return False
 
+        if (self._args.num_warmup is not None and self._args.num_warmup < 0) or \
+                (self._args.num_steps is not None and self._args.num_steps < 1):
+            logger.error('num_warmup must be nonnegative and num_steps must be positive.')
+            self._result.set_return_code(ReturnCode.INVALID_ARGUMENT)
+            return False
+
         for p in self._precision_need_to_run:
             command = os.path.join(self._args.bin_dir, self._bin_name)
             command += ' ' + self.__precision_and_kernel_map[p]
@@ -119,6 +133,10 @@ class RocmGemmFlopsBenchmark(GemmFlopsBenchmark):
                 self._args.lda, self._args.ldb, self._args.ldc, self._args.ldd
             )
             command += ' --initialization {}'.format(self._args.initialization)
+            if self._args.num_warmup is not None:
+                command += ' --cold_iters {}'.format(self._args.num_warmup)
+            if self._args.num_steps is not None:
+                command += ' --iters {}'.format(self._args.num_steps)
             self._commands.append(command)
 
         return True

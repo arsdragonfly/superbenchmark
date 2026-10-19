@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Tests for the experimental ROCm 10 image scaffold."""
+"""Tests for the experimental ROCm 10.1 image scaffold."""
 
 import os
 import subprocess
@@ -18,7 +18,7 @@ class Rocm10DockerfileTestCase(unittest.TestCase):
     def setUpClass(cls):
         """Load the Dockerfile and extract RCCL test architecture handling."""
         root = Path(__file__).resolve().parents[1]
-        cls.dockerfile = (root / 'dockerfile' / 'rocm10.0.x.dockerfile').read_text(encoding='utf-8')
+        cls.dockerfile = (root / 'dockerfile' / 'rocm10.1.x.dockerfile').read_text(encoding='utf-8')
         env_start = cls.dockerfile.index("printf 'export ROCM_PATH=%q")
         env_end = cls.dockerfile.index('\n\n', env_start)
         cls.environment_script = cls.dockerfile[env_start:env_end]
@@ -74,7 +74,8 @@ class Rocm10DockerfileTestCase(unittest.TestCase):
 
     def test_all_device_sdk_uses_base_package_ecosystem(self):
         """Discover the installed wheel SDK without an alias or global loader override."""
-        self.assertIn('rocm10.0_ubuntu26.04_py3.14_pytorch_release_2.13.0@sha256:', self.dockerfile)
+        self.assertIn('rocm10.1.0_ubuntu26.04_py3.14_pytorch_release_2.13.0@sha256:', self.dockerfile)
+        self.assertIn('ARG ROCM_VERSION=10.1.0', self.dockerfile)
         self.assertIn('"rocm[devel,libraries,device-all]==${ROCM_VERSION}"', self.dockerfile)
         self.assertIn('rocm-sdk init', self.dockerfile)
         self.assertIn('ROCM_PATH="$(rocm-sdk path --root)"', self.dockerfile)
@@ -162,7 +163,7 @@ class Rocm10DockerfileTestCase(unittest.TestCase):
         """Build RCCL and its tests from one revision that contains the MI455X fixes."""
         self.assertIn('ARG AMDGPU_TARGETS="gfx942 gfx950 gfx1250"', self.dockerfile)
         self.assertIn('test -r "${ROCM_PATH}/lib/librccl.so"', self.dockerfile)
-        self.assertIn('ARG ROCM_SYSTEMS_COMMIT=6b0e43f341195e203754e08f850e437ff2fc09f9', self.dockerfile)
+        self.assertIn('ARG ROCM_SYSTEMS_COMMIT=7da43026e4f2ef7600433c38c820732f7a205d22', self.dockerfile)
         # Merge commit of ROCm/rocm-systems#12051.
         self.assertIn('ARG RCCL_SOURCE_COMMIT=2a0c58ec63ea22487ea65458b68b92426119eb11', self.dockerfile)
         self.assertIn('RCCL_SOURCE_PREFIX=/opt/rccl', self.dockerfile)
@@ -231,6 +232,10 @@ class Rocm10DockerfileTestCase(unittest.TestCase):
 
     def test_prebuilt_blas_clients_keep_their_kernel_packs(self):
         """Keep helper kernels and SDK dependency paths without extracting another runtime."""
+        self.assertIn(
+            'ARG ROCM_TESTS_SHA256=c6d6afe27474badb88793330278616caf74c40d647ea2d26457352d7dfc0ace8',
+            self.dockerfile,
+        )
         self.assertIn('therock-dist-linux-multiarch-tests-${ROCM_VERSION}.tar.gz', self.dockerfile)
         self.assertIn("'./bin/rocblas-bench' './bin/hipblaslt-bench' './.kpack/blas_test_*.kpack'", self.dockerfile)
         for arch in ('gfx942', 'gfx950', 'gfx1250'):
@@ -335,10 +340,10 @@ class Rocm10DockerfileTestCase(unittest.TestCase):
         start = self.dockerfile.index("python3 -c 'import sys; from importlib.metadata import version;")
         check = self.dockerfile[start:self.dockerfile.index(' && \\\n', start)]
         versions = {
-            'torch': '2.13.0+rocm10.0.0',
-            'triton': '3.8.0+git4cff872c.rocm10.0.0',
-            'rocm-sdk-core': '10.0.0',
-            'rocm-sdk-devel': '10.0.0',
+            'torch': '2.13.0+rocm10.1.0',
+            'triton': '3.8.0+git669b31ac.rocm10.1.0',
+            'rocm-sdk-core': '10.1.0',
+            'rocm-sdk-devel': '10.1.0',
         }
         for changed in (None, 'torch'):
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as directory:
@@ -351,7 +356,7 @@ class Rocm10DockerfileTestCase(unittest.TestCase):
                 result = subprocess.run(['/bin/bash', '-c', check], env=env, capture_output=True, text=True)
                 if changed:
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn('torch==2.13.0+rocm10.0.0 (found 0.0.0)', result.stderr)
+                    self.assertIn('torch==2.13.0+rocm10.1.0 (found 0.0.0)', result.stderr)
                 else:
                     self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -367,8 +372,8 @@ class Rocm10DockerfileTestCase(unittest.TestCase):
 
     def test_rvs_uses_signed_apt_repositories(self):
         """Install RVS and matching dependencies with APT, not a tarball or forced extraction."""
-        self.assertIn('ARG RVS_VERSION=1.6.122-708', self.dockerfile)
-        self.assertIn('ARG ROCM_APT_VERSION=10.0.0-4', self.dockerfile)
+        self.assertIn('ARG RVS_VERSION=1.6.131-844', self.dockerfile)
+        self.assertIn('ARG ROCM_APT_VERSION=10.1.0-3', self.dockerfile)
         self.assertIn('https://stable.repo.amd.com/rocm/extras/rvs/packages/ubuntu2604/', self.dockerfile)
         self.assertIn('https://stable.repo.amd.com/rocm/core/packages/ubuntu2604/', self.dockerfile)
         self.assertIn('Signed-By: /etc/apt/keyrings/amdrocm.gpg', self.dockerfile)

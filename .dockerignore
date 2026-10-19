@@ -1,6 +1,9 @@
 # SuperBench
 outputs/
 *.tar.gz
+.vscode/
+.env
+.env.*
 
 # Python
 **/__pycache__
@@ -10,7 +13,6 @@ outputs/
 
 # Git
 **/.git
-!/.git
 **/.gitmodules
 **/.dockerignore
 .github/

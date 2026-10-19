@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=rocm/pytorch:rocm10.0_ubuntu26.04_py3.14_pytorch_release_2.13.0@sha256:3174cb7061d94c427da96c0edef4adea28046fa3f3b2ff3948dc4e995665ff8c
+ARG BASE_IMAGE=rocm/pytorch:rocm10.1.0_ubuntu26.04_py3.14_pytorch_release_2.13.0@sha256:1d3ebef7da1df35f0c103ed038521933ebaeaf6f8c8d710168d8c294efdc59d9
 FROM ${BASE_IMAGE}
 
 LABEL maintainer="SuperBench"
@@ -9,11 +9,12 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # built kernels (SuperBench benchmarks, RCCL and TransformerEngine).
 ARG AMDGPU_TARGETS="gfx942 gfx950 gfx1250"
 ARG NUM_MAKE_JOBS=64
-ARG ROCM_VERSION=10.0.0
-# rocm-systems revision selected by TheRock's therock-10.0 release.
-ARG ROCM_SYSTEMS_COMMIT=6b0e43f341195e203754e08f850e437ff2fc09f9
-# MI455X (gfx1250) needs RCCL fixes merged to rocm-systems develop after that
-# release, including ROCm/rocm-systems#12051 (GPU->NIC distance and GDR on gfx1250
+ARG ROCM_VERSION=10.1.0
+# rocm-systems revision selected by TheRock's therock-10.1 release.
+ARG ROCM_SYSTEMS_COMMIT=7da43026e4f2ef7600433c38c820732f7a205d22
+# ROCm 10.1 still rewrites GPU partition paths rather than physical DEV paths.
+# Retain MI455X (gfx1250) fixes from develop, including
+# ROCm/rocm-systems#12051 (GPU->NIC distance and GDR on gfx1250
 # MLOPart partitions) and the gfx1250 symmetric-memory/VMM teardown fixes.
 # RCCL and RCCL-tests are built from this revision into RCCL_SOURCE_PREFIX.
 # Pass an empty value to keep the packaged RCCL with release-matched RCCL-tests.
@@ -112,9 +113,9 @@ ENV SB_ROCM_MEM_BW_BACKEND=transferbench \
     USE_HIPBLAS_COMPUTETYPE=1
 
 # Install RVS through AMD's signed Ubuntu 26.04 repositories. Explicitly select
-# matching native dependencies instead of legacy distro packages or ROCm 10.1.
-ARG RVS_VERSION=1.6.122-708
-ARG ROCM_APT_VERSION=10.0.0-4
+# ROCm 10.1 native dependencies instead of legacy distro packages or ROCm 10.0.
+ARG RVS_VERSION=1.6.131-844
+ARG ROCM_APT_VERSION=10.1.0-3
 RUN install -d -m 0755 /etc/apt/keyrings && \
     curl -fsSL https://stable.repo.amd.com/rocm/gpg/packages.gpg | \
         gpg --batch --yes --dearmor -o /etc/apt/keyrings/amdrocm.gpg && \
@@ -198,7 +199,7 @@ RUN test -f third_party/fio/Makefile && \
 
 # Extract only matching prebuilt clients and their external GPU kernel packs.
 # The ELFs alone cannot initialize matrices without the blas_test_*.kpack files.
-ARG ROCM_TESTS_SHA256=47468ff71b8027eed4784de5052aa18684cb2ec0bfe0409ad7e62b9a6cf88f1f
+ARG ROCM_TESTS_SHA256=c6d6afe27474badb88793330278616caf74c40d647ea2d26457352d7dfc0ace8
 RUN curl -fsSL "https://stable.repo.amd.com/rocm/core/tarball/therock-dist-linux-multiarch-tests-${ROCM_VERSION}.tar.gz" -o /tmp/rocm-tests.tar.gz && \
     printf '%s  %s\n' "${ROCM_TESTS_SHA256}" /tmp/rocm-tests.tar.gz | sha256sum --check --strict && \
     tar -xzf /tmp/rocm-tests.tar.gz -C "${SB_HOME}" --wildcards --no-wildcards-match-slash \
@@ -246,7 +247,7 @@ RUN framework_jobs="${NUM_MAKE_JOBS}" && \
         TMPDIR=/tmp/rocm10-frameworks-scratch NVTE_USE_ROCM=1 NVTE_FRAMEWORK=pytorch \
         NVTE_ROCM_ARCH="${te_architectures}" NVTE_NO_LOCAL_VERSION=1 NVTE_CK_JIT=1 \
         NVTE_FUSED_ATTN_AOTRITON=1 PREBUILD_KERNELS=0 BUILD_TARGET=rocm RCCL_HOME="${ROCM_PATH}" && \
-    python3 -c 'import sys; from importlib.metadata import version; expected = {"torch": "2.13.0+rocm10.0.0", "triton": "3.8.0+git4cff872c.rocm10.0.0", "rocm-sdk-core": "10.0.0", "rocm-sdk-devel": "10.0.0"}; wrong = ["{}=={} (found {})".format(name, value, version(name)) for name, value in expected.items() if version(name) != value]; sys.exit("Unexpected base packages: " + ", ".join(wrong) if wrong else 0)' && \
+    python3 -c 'import sys; from importlib.metadata import version; expected = {"torch": "2.13.0+rocm10.1.0", "triton": "3.8.0+git669b31ac.rocm10.1.0", "rocm-sdk-core": "10.1.0", "rocm-sdk-devel": "10.1.0"}; wrong = ["{}=={} (found {})".format(name, value, version(name)) for name, value in expected.items() if version(name) != value]; sys.exit("Unexpected base packages: " + ", ".join(wrong) if wrong else 0)' && \
     mkdir -p "${TMPDIR}" && \
     python3 -m pip install \
         pybind11==3.0.1 pydantic==2.13.5 einops==0.8.2 psutil==7.2.2 mpi4py==4.1.1 \

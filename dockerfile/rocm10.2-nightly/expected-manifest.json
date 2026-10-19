@@ -1,0 +1,107 @@
+{
+  "the_rock_commit": "ac008259bb0d7be08d4a2ce36dab2e46383c9e63",
+  "github_job": "build_stage",
+  "github_run_id": "39081197775",
+  "rocm_package_version": "10.2.0a20261018",
+  "rocm_version": "10.2.0",
+  "submodules": [
+    {
+      "submodule_name": "half",
+      "submodule_path": "base/half",
+      "submodule_url": "https://github.com/ROCm/half.git",
+      "pin_sha": "207ee58595a64b5c4a70df221f1e6e704b807811",
+      "patches": []
+    },
+    {
+      "submodule_name": "rocm-cmake",
+      "submodule_path": "base/rocm-cmake",
+      "submodule_url": "https://github.com/ROCm/rocm-cmake.git",
+      "pin_sha": "10155d7272ea1bf79f6b5a9dbc339657af1aa372",
+      "patches": []
+    },
+    {
+      "submodule_name": "llvm-project",
+      "submodule_path": "compiler/amd-llvm",
+      "submodule_url": "https://github.com/ROCm/llvm-project.git",
+      "pin_sha": "bdc35841c97ff51400273b91d7bc05c96e19c2d9",
+      "patches": []
+    },
+    {
+      "submodule_name": "HIPIFY",
+      "submodule_path": "compiler/hipify",
+      "submodule_url": "https://github.com/ROCm/HIPIFY.git",
+      "pin_sha": "118b213d89bea7bb7bedddae3e5ec7b14d4a26c5",
+      "patches": []
+    },
+    {
+      "submodule_name": "spirv-llvm-translator",
+      "submodule_path": "compiler/spirv-llvm-translator",
+      "submodule_url": "https://github.com/ROCm/SPIRV-LLVM-Translator.git",
+      "pin_sha": "24a9abfe0af17e3d2a0b37abfc3d21bf56a3ac2d",
+      "patches": []
+    },
+    {
+      "submodule_name": "rocgdb",
+      "submodule_path": "debug-tools/rocgdb/source",
+      "submodule_url": "https://github.com/ROCm/rocgdb.git",
+      "pin_sha": "1326d1cb924108c6d8768915bf02c51496e595b4",
+      "patches": []
+    },
+    {
+      "submodule_name": "libhipcxx",
+      "submodule_path": "math-libs/libhipcxx",
+      "submodule_url": "https://github.com/ROCm/libhipcxx.git",
+      "pin_sha": "88f23f01fd7000c1ad25492311693e8e7ccabe31",
+      "patches": []
+    },
+    {
+      "submodule_name": "rocm-docs",
+      "submodule_path": "rocm-docs",
+      "submodule_url": "https://github.com/ROCm/rocm-docs.git",
+      "pin_sha": "9bcf25db1e77f58b435fe162baaa99566bac0189",
+      "patches": []
+    },
+    {
+      "submodule_name": "rocm-libraries",
+      "submodule_path": "rocm-libraries",
+      "submodule_url": "https://github.com/ROCm/rocm-libraries",
+      "pin_sha": "8a29d2e82b93f5065c7fe5630248d3689f0c3f06",
+      "patches": []
+    },
+    {
+      "submodule_name": "rocm-systems",
+      "submodule_path": "rocm-systems",
+      "submodule_url": "https://github.com/ROCm/rocm-systems.git",
+      "pin_sha": "2a8fffb7d64c59f83fe0d2efa22ed31d87d8adbf",
+      "patches": [
+        "patches/amd-mainline/rocm-systems/0001-rocr-honor-build-time-hotswap-default.patch"
+      ]
+    },
+    {
+      "submodule_name": "amd-mesa",
+      "submodule_path": "third-party/sysdeps/common/mesa-fork",
+      "submodule_url": "https://github.com/ROCm/mesa-fork.git",
+      "pin_sha": "0786a951148790937305c9e7dbf0688cd26c89e6",
+      "patches": []
+    }
+  ],
+  "flags": {
+    "ROCM_BUILD_FLAGS_CANARY_BOOL_FALSE": false,
+    "ROCM_BUILD_FLAGS_CANARY_BOOL_TRUE": true,
+    "ROCM_BUILD_FLAGS_CANARY_INTEGER_NEGATIVE": -17,
+    "KPACK_SPLIT_ARTIFACTS": true,
+    "HIPDNN_ENABLE_SDPA": true,
+    "HIPBLASLTPROVIDER_ENABLE_MX_GEMM": false,
+    "HIPKERNELPROVIDER_ENABLE_ROCKE": false,
+    "HIPDNN_ENABLE_KERNEL_INGESTOR": false,
+    "MIOPEN_ENABLE_HIPDNN_WRAPPER": false,
+    "HIPDNN_ENABLE_CUDNN_COMPATIBILITY": false,
+    "STAMP_LIBRARY_GIT_VERSIONS": false,
+    "INCLUDE_HRX": false,
+    "FFTW3_AUTOTOOLS_BUILD": true,
+    "HSA_HOTSWAP_DEFAULT_ON": true,
+    "HSA_WINDOWS_SHARED_RUNTIME": false,
+    "LLVM_ENABLE_ASSERTIONS": false,
+    "WINDOWS_DRIVER_BUILD": false
+  }
+}

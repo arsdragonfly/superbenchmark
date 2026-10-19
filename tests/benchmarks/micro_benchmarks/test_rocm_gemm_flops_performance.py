@@ -41,6 +41,8 @@ class RocmGemmFlopsTest(BenchmarkTestCase, unittest.TestCase):
         assert (benchmark._args.m == 7680)
         assert (benchmark._args.n == 8192)
         assert (benchmark._args.k == 8192)
+        assert (benchmark._args.num_warmup is None)
+        assert (benchmark._args.num_steps is None)
 
         params = '--transposeA N --transposeB T -m 7680 -n 8192 -k 8192' + \
             ' --alpha 1 --beta 0 --lda 8384 --ldb 8384 --ldc 8384 --ldd 8384 --initialization hpl'
@@ -93,3 +95,24 @@ T,N,7680,8192,8192,1,8416,0,8416,8416,8416,1, 162675, 6336.5
 
         # Negative case - Add invalid raw output.
         assert (benchmark._process_raw_result(4, 'Invalid raw output') is False)
+
+    def test_explicit_iteration_counts(self):
+        """Forward minimum and custom YAML iteration counts to the native client."""
+        benchmark_class, _ = BenchmarkRegistry._BenchmarkRegistry__select_benchmark('gemm-flops', Platform.ROCM)
+        for warmup, steps in ((0, 1), (2, 3)):
+            with self.subTest(warmup=warmup, steps=steps):
+                benchmark = benchmark_class(
+                    'gemm-flops', parameters=f'--num_warmup {warmup} --num_steps {steps}'
+                )
+                self.assertTrue(benchmark._preprocess())
+                for command in benchmark._commands:
+                    self.assertTrue(command.endswith(f' --cold_iters {warmup} --iters {steps}'))
+
+    def test_invalid_iteration_counts(self):
+        """Reject negative warmup counts and empty measurement runs."""
+        benchmark_class, _ = BenchmarkRegistry._BenchmarkRegistry__select_benchmark('gemm-flops', Platform.ROCM)
+        for parameters in ('--num_warmup -1', '--num_steps 0', '--num_steps -1'):
+            with self.subTest(parameters=parameters):
+                benchmark = benchmark_class('gemm-flops', parameters=parameters)
+                self.assertFalse(benchmark._preprocess())
+                self.assertEqual(benchmark.return_code, ReturnCode.INVALID_ARGUMENT)

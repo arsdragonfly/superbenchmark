@@ -1,0 +1,368 @@
+# Functional smoke coverage, not performance or full-size model qualification.
+version: v0.12
+superbench:
+  enable: null
+  monitor:
+    enable: false
+  var:
+    local: &local
+      enable: true
+      modes:
+        - name: local
+          proc_num: 4
+          parallel: false
+          prefix: HIP_VISIBLE_DEVICES={proc_rank}
+    all_devices: &all_devices
+      enable: true
+      modes:
+        - name: local
+          proc_num: 1
+          parallel: false
+    distributed: &distributed
+      enable: true
+      modes:
+        - name: torch.distributed
+          proc_num: 4
+          node_num: 1
+      frameworks: [pytorch]
+    common: &common
+      run_count: 1
+      log_raw_data: true
+      log_flushing: true
+    gemm: &gemm
+      <<: *common
+      m: 64
+      n: 64
+      k: 64
+      lda: 64
+      ldb: 64
+      ldc: 64
+      ldd: 64
+      num_warmup: 0
+      num_steps: 1
+      initialization: rand_int
+    blaslt: &blaslt
+      <<: *common
+      shapes: ["64,64,64"]
+      num_warmup: 0
+      num_steps: 1
+      initialization: hpl
+    collective: &collective
+      <<: *common
+      ngpus: 4
+      minbytes: 16K
+      maxbytes: 16K
+      check: 1
+      iters: 1
+      warmup_iters: 0
+      data_type: float
+    model: &model
+      <<: *common
+      duration: 0
+      num_warmup: 0
+      num_steps: 1
+      sample_count: 1
+      batch_size: 1
+      pin_memory: false
+      num_workers: 0
+      model_action: [train]
+      distributed_impl: ddp
+      distributed_backend: nccl
+      log_n_steps: 1
+      check_frequency: 1
+      force_fp32: true
+    transformer: &transformer
+      <<: *model
+      seq_len: 16
+      # Retain each named preset's width/heads, but use one block for smoke.
+      num_hidden_layers: 1
+    cnn: &cnn
+      <<: *model
+      # BatchNorm training needs two values/channel at the final 1x1 feature map.
+      sample_count: 2
+      batch_size: 2
+      image_size: 32
+    inference: &inference
+      <<: *common
+      use_pytorch: true
+      num_layers: 1
+      num_warmup: 0
+      num_steps: 1
+      precision: float16
+      hidden_size: 16
+      input_size: 16
+      batch_size: 16
+  benchmarks:
+    kernel-launch:
+      <<: *local
+      parameters:
+        <<: *common
+        num_warmup: 0
+        num_steps: 1
+        interval: 0
+    gpu-copy-bw:correctness:
+      <<: *all_devices
+      parameters: &copy
+        <<: *common
+        mem_type: [htod, dtoh, dtod, one_to_all, all_to_one, all_to_all]
+        copy_type: [sm, dma]
+        size: 4096
+        num_warm_up: 0
+        num_loops: 1
+        check_data: true
+    gpu-copy-bw:performance:
+      <<: *all_devices
+      parameters:
+        <<: *copy
+        size: 65536
+    gemm-flops:fp32_xdlops:
+      <<: *local
+      parameters:
+        <<: *gemm
+        precision: [fp32_xdlops]
+    gemm-flops:fp16_xdlops:
+      <<: *local
+      parameters:
+        <<: *gemm
+        precision: [fp16_xdlops]
+    gemm-flops:bf16_xdlops:
+      <<: *local
+      parameters:
+        <<: *gemm
+        precision: [bf16_xdlops]
+    gemm-flops:fp64:
+      <<: *local
+      parameters:
+        <<: *gemm
+        precision: [fp64]
+    gemm-flops:int8_xdlops:
+      <<: *local
+      parameters:
+        <<: *gemm
+        precision: [int8_xdlops]
+    hipblaslt-gemm:fp32:
+      <<: *local
+      parameters:
+        <<: *blaslt
+        in_types: [fp32]
+    hipblaslt-gemm:fp16:
+      <<: *local
+      parameters:
+        <<: *blaslt
+        in_types: [fp16]
+    hipblaslt-gemm:bf16:
+      <<: *local
+      parameters:
+        <<: *blaslt
+        in_types: [bf16]
+    hipblaslt-gemm:fp8:
+      <<: *local
+      parameters:
+        <<: *blaslt
+        in_types: [fp8]
+    rccl-bw:allreduce:
+      <<: *all_devices
+      parameters:
+        <<: *collective
+        operation: allreduce
+    rccl-bw:allgather:
+      <<: *all_devices
+      parameters:
+        <<: *collective
+        operation: allgather
+    rccl-bw:reducescatter:
+      <<: *all_devices
+      parameters:
+        <<: *collective
+        operation: reducescatter
+    rccl-bw:broadcast:
+      <<: *all_devices
+      parameters:
+        <<: *collective
+        operation: broadcast
+    rccl-bw:alltoall:
+      <<: *all_devices
+      parameters:
+        <<: *collective
+        operation: alltoall
+    matmul:
+      <<: *local
+      frameworks: [pytorch]
+      parameters:
+        <<: *common
+        m: 64
+        n: 64
+        k: 64
+        num_warmup: 0
+        num_steps: 1
+    sharding-matmul:
+      <<: *distributed
+      parameters:
+        <<: *common
+        mode: [allreduce, allgather, nosharding]
+        m: 64
+        n: 64
+        k: 64
+        num_warmup: 0
+        num_steps: 1
+    computation-communication-overlap:
+      <<: *distributed
+      parameters:
+        <<: *common
+        m: 32
+        n: 32
+        k: 32
+        p: 32
+        q: 32
+        ratio: 1
+        kernel: [mul, matmul]
+        num_warmup: 0
+        # Each outer step still contains 100 collectives per kernel.
+        num_steps: 1
+    dist-inference:eager:
+      <<: *distributed
+      parameters:
+        <<: *inference
+        use_cuda_graph: false
+    dist-inference:graph:
+      <<: *distributed
+      parameters:
+        <<: *inference
+        # Initialize handles and collective kernels outside graph capture.
+        num_warmup: 1
+        use_cuda_graph: true
+    model-benchmarks:lstm-float32:
+      <<: *distributed
+      models: [lstm]
+      parameters: &lstm
+        <<: *model
+        input_size: 16
+        hidden_size: 16
+        seq_len: 1
+        precision: [float32]
+    model-benchmarks:lstm-float16:
+      <<: *distributed
+      models: [lstm]
+      parameters:
+        <<: *lstm
+        precision: [float16]
+    model-benchmarks:gpt2-small-float32:
+      <<: *distributed
+      models: [gpt2-small]
+      parameters: {<<: *transformer, precision: [float32]}
+    model-benchmarks:gpt2-small-float16:
+      <<: *distributed
+      models: [gpt2-small]
+      parameters: {<<: *transformer, precision: [float16]}
+    model-benchmarks:gpt2-large-float32:
+      <<: *distributed
+      models: [gpt2-large]
+      parameters: {<<: *transformer, precision: [float32]}
+    model-benchmarks:gpt2-large-float16:
+      <<: *distributed
+      models: [gpt2-large]
+      parameters: {<<: *transformer, precision: [float16]}
+    model-benchmarks:bert-base-float32:
+      <<: *distributed
+      models: [bert-base]
+      parameters: {<<: *transformer, precision: [float32]}
+    model-benchmarks:bert-base-float16:
+      <<: *distributed
+      models: [bert-base]
+      parameters: {<<: *transformer, precision: [float16]}
+    model-benchmarks:bert-large-float32:
+      <<: *distributed
+      models: [bert-large]
+      parameters: {<<: *transformer, precision: [float32]}
+    model-benchmarks:bert-large-float16:
+      <<: *distributed
+      models: [bert-large]
+      parameters: {<<: *transformer, precision: [float16]}
+    model-benchmarks:resnet50-float32:
+      <<: *distributed
+      models: [resnet50]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:resnet50-float16:
+      <<: *distributed
+      models: [resnet50]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:resnet101-float32:
+      <<: *distributed
+      models: [resnet101]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:resnet101-float16:
+      <<: *distributed
+      models: [resnet101]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:resnet152-float32:
+      <<: *distributed
+      models: [resnet152]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:resnet152-float16:
+      <<: *distributed
+      models: [resnet152]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:densenet169-float32:
+      <<: *distributed
+      models: [densenet169]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:densenet169-float16:
+      <<: *distributed
+      models: [densenet169]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:densenet201-float32:
+      <<: *distributed
+      models: [densenet201]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:densenet201-float16:
+      <<: *distributed
+      models: [densenet201]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:vgg11-float32:
+      <<: *distributed
+      models: [vgg11]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:vgg11-float16:
+      <<: *distributed
+      models: [vgg11]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:vgg13-float32:
+      <<: *distributed
+      models: [vgg13]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:vgg13-float16:
+      <<: *distributed
+      models: [vgg13]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:vgg16-float32:
+      <<: *distributed
+      models: [vgg16]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:vgg16-float16:
+      <<: *distributed
+      models: [vgg16]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:vgg19-float32:
+      <<: *distributed
+      models: [vgg19]
+      parameters: {<<: *cnn, precision: [float32]}
+    model-benchmarks:vgg19-float16:
+      <<: *distributed
+      models: [vgg19]
+      parameters: {<<: *cnn, precision: [float16]}
+    model-benchmarks:gpt2-small-fp8_hybrid:
+      <<: *distributed
+      models: [gpt2-small]
+      parameters: {<<: *transformer, precision: [fp8_hybrid]}
+    model-benchmarks:gpt2-large-fp8_hybrid:
+      <<: *distributed
+      models: [gpt2-large]
+      parameters: {<<: *transformer, precision: [fp8_hybrid]}
+    model-benchmarks:bert-base-fp8_hybrid:
+      <<: *distributed
+      models: [bert-base]
+      parameters: {<<: *transformer, precision: [fp8_hybrid]}
+    model-benchmarks:bert-large-fp8_hybrid:
+      <<: *distributed
+      models: [bert-large]
+      parameters: {<<: *transformer, precision: [fp8_hybrid]}
