@@ -4,6 +4,92 @@ This profile provides a reproducible ROCm/PyTorch foundation, a full SuperBench
 overlay, and a **54-case functional smoke test**. It is not a throughput,
 long-stress, fabric, or full-size-model qualification.
 
+## Published experiment: October 19, 2026
+
+Both images are published in `mi455xacr.azurecr.io` with the tag
+`10.2.0a20261018-mi455x-a0-experimental`. The tags were pulled back and verified
+against these immutable digests:
+
+| Image repository | Qualified digest |
+|---|---|
+| `rocm-pytorch-base` | `sha256:bb83ff8487887bdd91be9e041dfedff7a15ab3dd8238d6a199735867d8631201` |
+| `superbench-rocm-pytorch` | `sha256:d90d2da512fba93484487129c03bb253e510b97b42f5bee973d4f565e6a58bbe` |
+
+The SuperBench image was built from source commit
+`c03e6801459cb3a1e9e2e62e3ccb072f2b325406`. Its
+[smoke configuration](../superbench/config/amd_mi455x_rocm102_smoke.yaml) has
+SHA-256 `fd791ec39c5d5739357789d4f34ef77f183a403616672cd22a179d2442111b8b`.
+Later documentation-only commits on the branch do not change that image's
+recorded source revision.
+
+### Run the published image
+
+On a suitable idle GPU host, with the prerequisites described below:
+
+```bash
+git clone --branch experiments/mi455x-rocm10.2-nightly-smoke-20261018 \
+  https://github.com/arsdragonfly/superbenchmark.git
+cd superbenchmark
+az acr login --name mi455xacr
+
+SB_IMAGE=mi455xacr.azurecr.io/superbench-rocm-pytorch@sha256:d90d2da512fba93484487129c03bb253e510b97b42f5bee973d4f565e6a58bbe
+docker pull "${SB_IMAGE}"
+python3 dockerfile/rocm10.2-nightly/run_smoke.py \
+  --image "${SB_IMAGE}" \
+  --output-dir outputs/mi455x-rocm102-smoke
+```
+
+Use a new output directory for each run. Native source submodules are not
+needed to run the published image; they are needed for source builds.
+
+### Qualification results
+
+One complete run of the final immutable SuperBench image passed **54/54 cases**
+with **195 rank-result sets** and **389 finite numeric metrics**:
+
+| Coverage | Passed |
+|---|---:|
+| Kernel launch and GPU copies | 3/3 |
+| Native rocBLAS / hipBLASLt GEMMs | 9/9 |
+| RCCL collectives, with explicit zero-error verification | 5/5 |
+| Matmul, sharding, overlap, eager inference and real graph replay | 5/5 |
+| FP32 / FP16 model training | 28/28 |
+| GPT2 / BERT FP8 model training | 4/4 |
+
+The run lasted from `2026-10-19T04:56:38.959Z` to `2026-10-19T05:59:10.123Z`
+(62 minutes 31 seconds). Even a one-step profile includes cold framework,
+JIT and kernel initialization; these timings are not throughput results.
+All four GPUs passed fresh post-run compute checks. No kernel GPU faults,
+persistent blocked tasks, or leftover workload containers were observed.
+
+Additional checks on the published stack:
+
+* The base passed four-GPU native FP8 output checks, four direct full-FP32
+  hipBLASLt identity tests, and guarded 16 GiB unsigned-offset
+  load/byte-load/store/atomic tests at offset `2^31`.
+* The final overlay passed **52 single-GPU TE correctness checks** and
+  **8 distributed TE checks** across four ranks, covering forward/backward,
+  normalization, E4M3/HYBRID FP8, and averaged gradients.
+* Installed TE, FlyDSL, AITER (including its native import-time JIT), and
+  Megatron Core imports passed on the GPU node.
+* The following command inside the final image passed **21 tests and
+  90 subtests**. The checkout's `.dockerignore` was mounted read-only at
+  `/opt/superbench/.dockerignore` for the build-context contract tests:
+
+  ```bash
+  python3 -m pytest -q \
+    tests/test_rocm102_dockerfiles.py \
+    tests/test_rocm102_smoke_config.py \
+    tests/test_rocm102_smoke_runner.py \
+    tests/benchmarks/model_benchmarks/test_transformer_engine_conversion.py
+  ```
+
+The host baseline and exclusions below are part of this qualification.
+Passing the reduced overlap case does not close the previously observed
+full-size, long-running overlap stall.
+
+## Frozen component versions
+
 The nightly was selected on October 18, 2026 and is deliberately frozen rather
 than following a moving `latest` tag:
 
