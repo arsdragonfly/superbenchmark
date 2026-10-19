@@ -1,0 +1,9 @@
+{
+  "rocm_package_version": "10.2.0a20261015",
+  "the_rock_commit": "98a3c880016a5d7fae72dda6c5a60356a4fcce2b",
+  "submodules": {
+    "llvm-project": "bdc35841c97ff51400273b91d7bc05c96e19c2d9",
+    "rocm-systems": "b2d4b1ec26326e45153e36c7cb2eb94458b72188",
+    "rocm-libraries": "3dc098eb2db3c8329b7d447bab37021d529bc23d"
+  }
+}

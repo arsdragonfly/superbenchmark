@@ -25,6 +25,10 @@ The [MI455X A0 nightly guide](docs/rocm10.2-nightly.md) contains the pinned
 ROCm/PyTorch base and full overlay recipes, host prerequisites, and a
 54-case minimum-iteration smoke profile.
 
+The separate [vLLM/SGLang rebuild guide](docs/rocm10.2-serving.md) contains the
+complete pinned October 15 Python 3.12 serving-image build chain, including
+both repaired LLVM compilers and CPU validation.
+
 ## Citations
 
 To cite SuperBench in your publications:

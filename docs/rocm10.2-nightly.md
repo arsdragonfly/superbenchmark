@@ -4,6 +4,9 @@ This profile provides a reproducible ROCm/PyTorch foundation, a full SuperBench
 overlay, and a **54-case functional smoke test**. It is not a throughput,
 long-stress, fabric, or full-size-model qualification.
 
+For the separate October 15 Python 3.12 vLLM/SGLang images, see the
+[serving-image rebuild guide](rocm10.2-serving.md).
+
 ## Published experiment: October 19, 2026
 
 Both images are published in `mi455xacr.azurecr.io` with the tag

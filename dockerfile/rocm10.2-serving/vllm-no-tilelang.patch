@@ -1,0 +1,11 @@
+diff --git a/requirements/rocm.txt b/requirements/rocm.txt
+--- a/requirements/rocm.txt
++++ b/requirements/rocm.txt
+@@ -20,7 +20,6 @@
+ # amd-quark: required for Quark quantization on ROCm
+ # To be consistent with test_quark.py
+ amd-quark==0.12.post1
+-tilelang==0.1.10
+ # Required apache-tvm-ffi matching tilelang version
+ apache-tvm-ffi==0.1.10 
+ # Required for faster safetensors model loading

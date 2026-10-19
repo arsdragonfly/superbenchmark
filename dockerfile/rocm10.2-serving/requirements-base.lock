@@ -1,0 +1,9 @@
+rocm[devel,libraries,device-gfx1250]==10.2.0a20261015
+rocm-sdk-core==10.2.0a20261015
+rocm-sdk-devel==10.2.0a20261015
+rocm-sdk-libraries==10.2.0a20261015
+torch[device-gfx1250]==2.13.0+rocm10.2.0a20261015
+torchvision[device-gfx1250]==0.28.0+rocm10.2.0a20261015
+torchaudio==2.11.0.2+rocm10.2.0a20261015
+triton==3.8.0+git66b3f9ff.rocm10.2.0a20261015
+apex==1.13.0+rocm10.2.0a20261015
