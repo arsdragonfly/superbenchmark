@@ -361,8 +361,13 @@ superbench:
     model-benchmarks:bert-base-fp8_hybrid:
       <<: *distributed
       models: [bert-base]
-      parameters: {<<: *transformer, precision: [fp8_hybrid]}
+      parameters: &bert_fp8
+        <<: *transformer
+        # The pooler has one row per sample; TE FP8 requires eight rows.
+        batch_size: 8
+        sample_count: 8
+        precision: [fp8_hybrid]
     model-benchmarks:bert-large-fp8_hybrid:
       <<: *distributed
       models: [bert-large]
-      parameters: {<<: *transformer, precision: [fp8_hybrid]}
+      parameters: *bert_fp8

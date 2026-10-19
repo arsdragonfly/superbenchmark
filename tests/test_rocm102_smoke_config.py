@@ -98,6 +98,15 @@ class Rocm102SmokeConfigTest(unittest.TestCase):
             else:
                 self.assertFalse(mode['parallel'])
 
+    def test_bert_fp8_pooler_has_minimum_aligned_batch(self):
+        """Sequence length cannot supply the rows removed by BERT pooling."""
+        for model in ('bert-base', 'bert-large'):
+            parameters = self.benchmarks[f'model-benchmarks:{model}-fp8_hybrid']['parameters']
+            self.assertEqual(parameters['batch_size'], 8)
+            self.assertEqual(parameters['sample_count'], 8)
+            self.assertEqual(parameters['num_steps'], 1)
+            self.assertEqual(self.benchmarks[f'model-benchmarks:{model}-float16']['parameters']['batch_size'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()

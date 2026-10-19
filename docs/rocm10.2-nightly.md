@@ -160,7 +160,10 @@ The overlap implementation still performs **100 collectives per outer step**;
 the YAML does not pretend that this internal loop is configurable.
 
 Transformer smoke cases retain their preset widths/head counts but use one
-block and sequence length 16. CNNs retain their named architectures but use
+block and sequence length 16. BERT FP8 uses batch/sample count 8: its pooler
+reduces the sequence to one row per sample, and TE requires eight rows for
+FP8 execution. Other transformer cases retain batch size 1.
+CNNs retain their named architectures but use
 32x32 images and batch size 2 so final-layer BatchNorm remains valid. These are
 smoke instances, not full-size-model performance results.
 
