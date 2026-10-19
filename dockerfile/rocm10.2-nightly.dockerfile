@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=mi455xacr.azurecr.io/rocm-pytorch-base@sha256:9b6247d2a8748595f26670293d7f333430ac69272807a65f96c3632898d88529
+ARG BASE_IMAGE=mi455xacr.azurecr.io/rocm-pytorch-base@sha256:bb83ff8487887bdd91be9e041dfedff7a15ab3dd8238d6a199735867d8631201
 ARG FLYDSL_WHEEL_IMAGE=flydsl-source
 
 FROM ${BASE_IMAGE} AS flydsl-builder
