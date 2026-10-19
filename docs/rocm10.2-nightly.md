@@ -57,6 +57,13 @@ before use.
 5. TE's basic A0 GEMM library does not provide fused FP32 weight/bias gradients.
    An [opt-in patch](../third_party/TransformerEngine/rocm_fp32_bgrad.patch)
    computes that FP32 bias gradient separately without reducing precision.
+6. Native clients prefer the canonical SDK core and math-library directories,
+   as PyTorch does, ahead of the flattened development view. Native RCCL in
+   the latter layout spent minutes and over 100 GiB of host memory in CPU
+   translation despite identical library bytes and an existing AOT cache.
+   Selecting the canonical runtime layout made the same four-GPU all-reduce
+   pass with zero correctness errors. The optional source-built RCCL override
+   still takes precedence.
 
 TE FlashAttention, CK fused attention and AOTriton fused attention are disabled
 at build and runtime. The profile enables `NVTE_ROCM_UNFUSED_FP32_BGRAD=1`.

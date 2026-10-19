@@ -137,6 +137,11 @@ RUN python3 "${ROCM_PATH}/bin/rocjitsu-pretranslate.py" --target gfx1250 --fail-
     && mkdir -p /opt/venv/lib/python3.14/site-packages/_rocm_sdk_core/share/rocjitsu/translations \
     && cp -a "${ROCM_PATH}/share/rocjitsu/translations/." \
         /opt/venv/lib/python3.14/site-packages/_rocm_sdk_core/share/rocjitsu/translations/
+# Prefer the packaged runtime layout; the flattened devel view triggers
+# expensive native RCCL translation despite byte-identical runtime libraries.
+RUN printf '%s\n' \
+        'export LD_LIBRARY_PATH="/opt/venv/lib/python3.14/site-packages/_rocm_sdk_core/lib:/opt/venv/lib/python3.14/site-packages/_rocm_sdk_libraries/lib:${LD_LIBRARY_PATH}"' \
+        >> /etc/profile.d/rocm-sdk-env.sh
 ENV PIP_CONSTRAINT=/opt/base-provenance/core-constraints.txt \
     HSA_HOTSWAP_ENABLE=1
 LABEL org.opencontainers.image.title="Experimental ROCm 10.2 nightly PyTorch base" \

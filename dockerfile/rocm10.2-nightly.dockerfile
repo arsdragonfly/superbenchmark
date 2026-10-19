@@ -141,7 +141,7 @@ RUN python3 -c 'from importlib.metadata import version; assert version("rocm-sdk
     printf '%s\n' \
         'export ROCM_HOME="${ROCM_PATH}" HIP_PATH="${ROCM_PATH}" RCCL_HOME="${ROCM_PATH}"' \
         'export PATH="${EXTRAS_PATH}/bin:${MPI_HOME}/bin:${SB_MICRO_PATH}/bin:${ROCM_PATH}/bin:${PATH}"' \
-        'export LD_LIBRARY_PATH="${EXTRAS_PATH}/lib:${MPI_HOME}/lib:${ROCM_PATH}/lib:${ROCM_PATH}/lib/llvm/lib:${ROCM_PATH}/lib/host-math/lib:${ROCM_PATH}/lib/rocm_sysdeps/lib"' \
+        'export LD_LIBRARY_PATH="${EXTRAS_PATH}/lib:${MPI_HOME}/lib:/opt/venv/lib/python3.14/site-packages/_rocm_sdk_core/lib:/opt/venv/lib/python3.14/site-packages/_rocm_sdk_libraries/lib:${ROCM_PATH}/lib:${ROCM_PATH}/lib/llvm/lib:${ROCM_PATH}/lib/host-math/lib:${ROCM_PATH}/lib/rocm_sysdeps/lib"' \
         >> /etc/profile.d/rocm10-env.sh
 
 # Resolve the SDK once at build time; shell startup must not reinitialize it.

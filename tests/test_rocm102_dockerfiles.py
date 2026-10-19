@@ -51,6 +51,16 @@ class Rocm102DockerfilesTest(unittest.TestCase):
         self.assertNotIn('rocm-sdk init', self.overlay)
         self.assertNotIn('ROCM_VERSION=10.1.0', self.overlay)
 
+    def test_native_clients_prefer_the_packaged_runtime_layout(self):
+        """Native RCCL must use the same library layout as qualified PyTorch."""
+        runtime = (
+            '/opt/venv/lib/python3.14/site-packages/_rocm_sdk_core/lib:'
+            '/opt/venv/lib/python3.14/site-packages/_rocm_sdk_libraries/lib:'
+        )
+        self.assertIn(runtime + '${LD_LIBRARY_PATH}', self.base)
+        self.assertIn(runtime + '${ROCM_PATH}/lib', self.overlay)
+        self.assertIn('export LD_LIBRARY_PATH=%q:', self.overlay)
+
     def test_te_remains_basic_and_flydsl_remains_fixed(self):
         """Do not reintroduce unqualified fused attention or an old independent LLVM."""
         for setting in ('NVTE_FLASH_ATTN=0', 'NVTE_FUSED_ATTN=0', 'NVTE_FUSED_ATTN_CK=0',
