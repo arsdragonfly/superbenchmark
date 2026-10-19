@@ -70,7 +70,6 @@ ARG ROCM_VERSION=10.2.0a20261018
 ARG ROCM_SYSTEMS_COMMIT=2a8fffb7d64c59f83fe0d2efa22ed31d87d8adbf
 # Default to the matched, qualified SDK RCCL; an explicit override remains available.
 ARG RCCL_SOURCE_COMMIT=
-ARG SB_SOURCE_REVISION=unknown
 
 ENV DEBIAN_FRONTEND=noninteractive \
     AMDGPU_TARGETS="${AMDGPU_TARGETS}" \
@@ -203,9 +202,11 @@ RUN rccl_architectures=$(printf '%s' "${AMDGPU_TARGETS}" | tr -s '[:space:]' ';'
     fi && \
     if [ -n "${RCCL_SOURCE_COMMIT}" ]; then \
         rocm_systems_commit="${RCCL_SOURCE_COMMIT}"; rccl_prefix="${RCCL_SOURCE_PREFIX}"; \
+        rccl_runtime_prefix="${RCCL_SOURCE_PREFIX}"; \
         rccl_projects='projects/rccl projects/rccl-tests'; \
     else \
         rocm_systems_commit="${ROCM_SYSTEMS_COMMIT}"; rccl_prefix="${ROCM_PATH}"; \
+        rccl_runtime_prefix=/opt/venv/lib/python3.14/site-packages/_rocm_sdk_libraries; \
         rccl_projects='projects/rccl-tests'; \
     fi && \
     git init /tmp/rocm-systems && \
@@ -237,12 +238,12 @@ RUN rccl_architectures=$(printf '%s' "${AMDGPU_TARGETS}" | tr -s '[:space:]' ';'
         -DGPU_TARGETS="${rccl_architectures}" \
         -DUSE_MPI=ON \
         -DCMAKE_INSTALL_PREFIX="${SB_HOME}" \
-        -DCMAKE_INSTALL_RPATH="${rccl_prefix}/lib;${ROCM_PATH}/lib;${MPI_HOME}/lib" \
+        -DCMAKE_INSTALL_RPATH="${rccl_runtime_prefix}/lib;${ROCM_PATH}/lib;${MPI_HOME}/lib" \
         -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON && \
     cmake --build /tmp/rccl-tests-build -j"${NUM_MAKE_JOBS}" && \
     cmake --install /tmp/rccl-tests-build && \
     rm -rf /tmp/rocm-systems /tmp/rccl-build /tmp/rccl-tests-build && \
-    bash -c 'ldd "${SB_HOME}/bin/all_reduce_perf"' | grep -F "${rccl_prefix}/lib/librccl.so"
+    bash -c 'ldd "${SB_HOME}/bin/all_reduce_perf"' | grep -F "${rccl_runtime_prefix}/lib/librccl.so"
 
 # Do not invoke the legacy ROCm aggregate target: it clones HIP 5.5 samples,
 # rebuilds math libraries, and installs unqualified Megatron/DeepSpeed dependencies.
@@ -267,6 +268,7 @@ RUN curl -fsSL "https://nightly.repo.amd.com/rocm/core/tarball/therock-dist-linu
     python3 -c 'import json, os; from pathlib import Path; a=json.loads((Path(os.environ["ROCM_PATH"])/"share/therock/therock_manifest.json").read_text()); b=json.loads((Path(os.environ["SB_HOME"])/"share/therock/therock_manifest.json").read_text()); pins=lambda m:{x["submodule_name"]:x["pin_sha"] for x in m["submodules"]}; assert a["rocm_package_version"] == b["rocm_package_version"]; assert a["the_rock_commit"] == b["the_rock_commit"]; assert pins(a) == pins(b)'
 
 COPY . .
+ARG SB_SOURCE_REVISION=unknown
 # Keep AMD's framework and all-device SDK packages when resolving SuperBench deps.
 # The same constraints protect them while building the frameworks below.
 # The SDK supplies amdsmi via .pth, not a separate distribution; use the torch

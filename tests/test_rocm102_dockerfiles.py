@@ -60,6 +60,10 @@ class Rocm102DockerfilesTest(unittest.TestCase):
         self.assertIn(runtime + '${LD_LIBRARY_PATH}', self.base)
         self.assertIn(runtime + '${ROCM_PATH}/lib', self.overlay)
         self.assertIn('export LD_LIBRARY_PATH=%q:', self.overlay)
+        self.assertIn('rccl_runtime_prefix="${RCCL_SOURCE_PREFIX}"', self.overlay)
+        self.assertIn('rccl_runtime_prefix=/opt/venv/lib/python3.14/site-packages/_rocm_sdk_libraries', self.overlay)
+        self.assertIn('grep -F "${rccl_runtime_prefix}/lib/librccl.so"', self.overlay)
+        self.assertIn('-DCMAKE_INSTALL_RPATH="${rccl_runtime_prefix}/lib;', self.overlay)
 
     def test_te_remains_basic_and_flydsl_remains_fixed(self):
         """Do not reintroduce unqualified fused attention or an old independent LLVM."""
