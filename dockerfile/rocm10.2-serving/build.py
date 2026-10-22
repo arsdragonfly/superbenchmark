@@ -14,6 +14,7 @@ NIGHTLY = '10.2.0a20261015'
 LLVM = 'superbench-serving-triton-llvm:5f07f818-3b2c3b02'
 FLYDSL = 'superbench-serving-flydsl:0.4.0-llvmfix'
 BASE = f'superbench-serving-sdk:{NIGHTLY}-py3.12'
+A0 = f'superbench-serving-a0-library:{NIGHTLY}'
 COMMON = f'superbench-serving-build:{NIGHTLY}-py3.12'
 FIXED = f'superbench-serving-base:{NIGHTLY}-py3.12-llvmfix'
 VERSIONS = {'vllm': '0.31.0', 'sglang': '0.5.18'}
@@ -47,7 +48,10 @@ def commands(args):
             (f'LLVM_BUILD_JOBS={args.llvm_jobs}',), target='llvm-source')
     yield build_command(f'{RECIPES}/base.dockerfile', BASE)
     yield build_command(
-        f'{RECIPES}/common.dockerfile', COMMON, (f'BASE_IMAGE={BASE}', f'BUILD_JOBS={args.jobs}'))
+        f'{RECIPES}/a0-library.dockerfile', A0, (f'BASE_IMAGE={BASE}', f'BUILD_JOBS={args.jobs}'))
+    yield build_command(
+        f'{RECIPES}/common.dockerfile', COMMON,
+        (f'BASE_IMAGE={BASE}', f'A0_IMAGE={A0}', f'BUILD_JOBS={args.jobs}'))
     yield build_command(
         f'{RECIPES}/triton.dockerfile', FIXED,
         (f'BASE_IMAGE={COMMON}', f'LLVM_IMAGE={llvm}', f'BUILD_JOBS={args.jobs}'))

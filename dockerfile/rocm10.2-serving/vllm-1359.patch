@@ -1,0 +1,1585 @@
+diff --git a/vllm/third_party/flash_linear_attention/ops/chunk_delta_h.py b/vllm/third_party/flash_linear_attention/ops/chunk_delta_h.py
+index 9e3dc2ada3bf..a37571aaa65d 100644
+--- a/vllm/third_party/flash_linear_attention/ops/chunk_delta_h.py
++++ b/vllm/third_party/flash_linear_attention/ops/chunk_delta_h.py
+@@ -13,7 +13,7 @@
+ from vllm.triton_utils import tl, triton
+ 
+ from .index import prepare_chunk_indices, prepare_chunk_offsets
+-from .op import exp, exp2
++from .op import exp, exp2, make_tensor_descriptor
+ from .utils import FLA_CHUNK_SIZE, use_cuda_graph
+ 
+ NUM_WARPS = [2, 4, 8, 16]
+@@ -120,108 +120,56 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64(
+ 
+     # load initial state
+     if USE_INITIAL_STATE:
+-        p_h0_1 = tl.make_block_ptr(h0, (V, K), (K, 1), (i_v * BV, 0), (BV, 64), (1, 0))
+-        b_h1 += tl.load(p_h0_1, boundary_check=(0, 1)).to(tl.float32)
++        desc_h0 = make_tensor_descriptor(h0, [V, K], [K, 1], [BV, 64])
++        b_h1 += desc_h0.load([i_v * BV, 0]).to(tl.float32)
+         if K > 64:
+-            p_h0_2 = tl.make_block_ptr(
+-                h0, (V, K), (K, 1), (i_v * BV, 64), (BV, 64), (1, 0)
+-            )
+-            b_h2 += tl.load(p_h0_2, boundary_check=(0, 1)).to(tl.float32)
++            b_h2 += desc_h0.load([i_v * BV, 64]).to(tl.float32)
+         if K > 128:
+-            p_h0_3 = tl.make_block_ptr(
+-                h0, (V, K), (K, 1), (i_v * BV, 128), (BV, 64), (1, 0)
+-            )
+-            b_h3 += tl.load(p_h0_3, boundary_check=(0, 1)).to(tl.float32)
++            b_h3 += desc_h0.load([i_v * BV, 128]).to(tl.float32)
+         if K > 192:
+-            p_h0_4 = tl.make_block_ptr(
+-                h0, (V, K), (K, 1), (i_v * BV, 192), (BV, 64), (1, 0)
+-            )
+-            b_h4 += tl.load(p_h0_4, boundary_check=(0, 1)).to(tl.float32)
++            b_h4 += desc_h0.load([i_v * BV, 192]).to(tl.float32)
++
++    desc_w = make_tensor_descriptor(w, [T, K], [stride_w, 1], [BT, 64])
++    desc_v = make_tensor_descriptor(v, [T, V], [stride_v, 1], [BT, BV])
++    if SAVE_NEW_VALUE:
++        desc_v_new = make_tensor_descriptor(v_new, [T, V], [stride_v, 1], [BT, BV])
++    desc_k = make_tensor_descriptor(k, [T, K], [stride_k, 1], [BT, 64])
+ 
+     # main recurrence
+     for i_t in range(NT):
+-        p_h1 = tl.make_block_ptr(
+-            h + i_t.to(tl.int64) * stride_h,
+-            (V, K),
+-            (K, 1),
+-            (i_v * BV, 0),
+-            (BV, 64),
+-            (1, 0),
++        desc_h = make_tensor_descriptor(
++            h + i_t.to(tl.int64) * stride_h, [V, K], [K, 1], [BV, 64]
+         )
+-        tl.store(p_h1, b_h1.to(p_h1.dtype.element_ty), boundary_check=(0, 1))
++        desc_h.store([i_v * BV, 0], b_h1.to(desc_h.dtype))
+         if K > 64:
+-            p_h2 = tl.make_block_ptr(
+-                h + i_t.to(tl.int64) * stride_h,
+-                (V, K),
+-                (K, 1),
+-                (i_v * BV, 64),
+-                (BV, 64),
+-                (1, 0),
+-            )
+-            tl.store(p_h2, b_h2.to(p_h2.dtype.element_ty), boundary_check=(0, 1))
++            desc_h.store([i_v * BV, 64], b_h2.to(desc_h.dtype))
+         if K > 128:
+-            p_h3 = tl.make_block_ptr(
+-                h + i_t.to(tl.int64) * stride_h,
+-                (V, K),
+-                (K, 1),
+-                (i_v * BV, 128),
+-                (BV, 64),
+-                (1, 0),
+-            )
+-            tl.store(p_h3, b_h3.to(p_h3.dtype.element_ty), boundary_check=(0, 1))
++            desc_h.store([i_v * BV, 128], b_h3.to(desc_h.dtype))
+         if K > 192:
+-            p_h4 = tl.make_block_ptr(
+-                h + i_t.to(tl.int64) * stride_h,
+-                (V, K),
+-                (K, 1),
+-                (i_v * BV, 192),
+-                (BV, 64),
+-                (1, 0),
+-            )
+-            tl.store(p_h4, b_h4.to(p_h4.dtype.element_ty), boundary_check=(0, 1))
++            desc_h.store([i_v * BV, 192], b_h4.to(desc_h.dtype))
+ 
+-        p_w = tl.make_block_ptr(
+-            w, (T, K), (stride_w, 1), (i_t * BT, 0), (BT, 64), (1, 0)
+-        )
+-        b_w = tl.load(p_w, boundary_check=(0, 1))
++        b_w = desc_w.load([i_t * BT, 0])
+         b_v = tl.dot(b_w, tl.trans(b_h1).to(b_w.dtype))
+         if K > 64:
+-            p_w = tl.make_block_ptr(
+-                w, (T, K), (stride_w, 1), (i_t * BT, 64), (BT, 64), (1, 0)
+-            )
+-            b_w = tl.load(p_w, boundary_check=(0, 1))
++            b_w = desc_w.load([i_t * BT, 64])
+             b_v += tl.dot(b_w, tl.trans(b_h2).to(b_w.dtype))
+         if K > 128:
+-            p_w = tl.make_block_ptr(
+-                w, (T, K), (stride_w, 1), (i_t * BT, 128), (BT, 64), (1, 0)
+-            )
+-            b_w = tl.load(p_w, boundary_check=(0, 1))
++            b_w = desc_w.load([i_t * BT, 128])
+             b_v += tl.dot(b_w, tl.trans(b_h3).to(b_w.dtype))
+         if K > 192:
+-            p_w = tl.make_block_ptr(
+-                w, (T, K), (stride_w, 1), (i_t * BT, 192), (BT, 64), (1, 0)
+-            )
+-            b_w = tl.load(p_w, boundary_check=(0, 1))
++            b_w = desc_w.load([i_t * BT, 192])
+             b_v += tl.dot(b_w, tl.trans(b_h4).to(b_w.dtype))
+-        p_v = tl.make_block_ptr(
+-            v, (T, V), (stride_v, 1), (i_t * BT, i_v * BV), (BT, BV), (1, 0)
+-        )
+-        b_v = tl.load(p_v, boundary_check=(0, 1)) - b_v
++        b_v = desc_v.load([i_t * BT, i_v * BV]) - b_v
+ 
+         if SAVE_NEW_VALUE:
+-            p_v = tl.make_block_ptr(
+-                v_new, (T, V), (stride_v, 1), (i_t * BT, i_v * BV), (BT, BV), (1, 0)
+-            )
+-            tl.store(p_v, b_v.to(p_v.dtype.element_ty), boundary_check=(0, 1))
++            desc_v_new.store([i_t * BT, i_v * BV], b_v.to(desc_v_new.dtype))
+ 
+         last_idx = min((i_t.to(tl.int64) + 1) * BT, T) - 1
+         if USE_G:
+-            m_t = (i_t.to(tl.int64) * BT + tl.arange(0, BT)) < T
++            o_t = i_t.to(tl.int64) * BT + tl.arange(0, BT)
++            m_t = o_t < T
+             b_g_last = tl.load(g + bos * H + last_idx * H + i_h)
+-            p_g = tl.make_block_ptr(
+-                g + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,)
+-            )
+-            b_g = tl.load(p_g, boundary_check=(0,))
++            b_g = tl.load(g + (bos + o_t) * H + i_h, mask=m_t, other=0.0)
+             if USE_EXP2:
+                 b_v = b_v * tl.where(m_t, exp2(b_g_last - b_g), 0)[:, None]
+                 b_g_last = exp2(b_g_last)
+@@ -282,48 +230,27 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64(
+                     b_h4 *= exp(b_gk_last4)[None, :]
+         b_v = b_v.to(k.dtype.element_ty)
+ 
+-        p_k = tl.make_block_ptr(
+-            k, (K, T), (1, stride_k), (0, i_t * BT), (64, BT), (0, 1)
+-        )
+-        b_k = tl.load(p_k, boundary_check=(0, 1))
++        b_k = tl.trans(desc_k.load([i_t * BT, 0]))
+         b_h1 += tl.trans(tl.dot(b_k, b_v))
+         if K > 64:
+-            p_k = tl.make_block_ptr(
+-                k, (K, T), (1, stride_k), (64, i_t * BT), (64, BT), (0, 1)
+-            )
+-            b_k = tl.load(p_k, boundary_check=(0, 1))
++            b_k = tl.trans(desc_k.load([i_t * BT, 64]))
+             b_h2 += tl.trans(tl.dot(b_k, b_v))
+         if K > 128:
+-            p_k = tl.make_block_ptr(
+-                k, (K, T), (1, stride_k), (128, i_t * BT), (64, BT), (0, 1)
+-            )
+-            b_k = tl.load(p_k, boundary_check=(0, 1))
++            b_k = tl.trans(desc_k.load([i_t * BT, 128]))
+             b_h3 += tl.trans(tl.dot(b_k, b_v))
+         if K > 192:
+-            p_k = tl.make_block_ptr(
+-                k, (K, T), (1, stride_k), (192, i_t * BT), (64, BT), (0, 1)
+-            )
+-            b_k = tl.load(p_k, boundary_check=(0, 1))
++            b_k = tl.trans(desc_k.load([i_t * BT, 192]))
+             b_h4 += tl.trans(tl.dot(b_k, b_v))
+     # epilogue
+     if STORE_FINAL_STATE:
+-        p_ht = tl.make_block_ptr(ht, (V, K), (K, 1), (i_v * BV, 0), (BV, 64), (1, 0))
+-        tl.store(p_ht, b_h1.to(p_ht.dtype.element_ty), boundary_check=(0, 1))
++        desc_ht = make_tensor_descriptor(ht, [V, K], [K, 1], [BV, 64])
++        desc_ht.store([i_v * BV, 0], b_h1.to(desc_ht.dtype))
+         if K > 64:
+-            p_ht = tl.make_block_ptr(
+-                ht, (V, K), (K, 1), (i_v * BV, 64), (BV, 64), (1, 0)
+-            )
+-            tl.store(p_ht, b_h2.to(p_ht.dtype.element_ty), boundary_check=(0, 1))
++            desc_ht.store([i_v * BV, 64], b_h2.to(desc_ht.dtype))
+         if K > 128:
+-            p_ht = tl.make_block_ptr(
+-                ht, (V, K), (K, 1), (i_v * BV, 128), (BV, 64), (1, 0)
+-            )
+-            tl.store(p_ht, b_h3.to(p_ht.dtype.element_ty), boundary_check=(0, 1))
++            desc_ht.store([i_v * BV, 128], b_h3.to(desc_ht.dtype))
+         if K > 192:
+-            p_ht = tl.make_block_ptr(
+-                ht, (V, K), (K, 1), (i_v * BV, 192), (BV, 64), (1, 0)
+-            )
+-            tl.store(p_ht, b_h4.to(p_ht.dtype.element_ty), boundary_check=(0, 1))
++            desc_ht.store([i_v * BV, 192], b_h4.to(desc_ht.dtype))
+ 
+ 
+ def chunk_gated_delta_rule_fwd_h(
+diff --git a/vllm/third_party/flash_linear_attention/ops/chunk_o.py b/vllm/third_party/flash_linear_attention/ops/chunk_o.py
+index 0c323b8ce215..57e85908348a 100644
+--- a/vllm/third_party/flash_linear_attention/ops/chunk_o.py
++++ b/vllm/third_party/flash_linear_attention/ops/chunk_o.py
+@@ -15,7 +15,7 @@
+ from vllm.triton_utils import tl, triton
+ 
+ from .index import prepare_chunk_indices
+-from .op import exp
++from .op import exp, make_tensor_descriptor
+ from .utils import FLA_CHUNK_SIZE, check_shared_mem, is_nvidia_hopper
+ 
+ BKV_LIST = [64, 128] if check_shared_mem() else [32, 64]
+@@ -90,22 +90,16 @@ def chunk_fwd_kernel_o(
+     b_o = tl.zeros([BT, BV], dtype=tl.float32)
+     b_A = tl.zeros([BT, BT], dtype=tl.float32)
+ 
++    desc_q = make_tensor_descriptor(q, [T, K], [Hg * K, 1], [BT, BK])
++    desc_k = make_tensor_descriptor(k, [T, K], [Hg * K, 1], [BT, BK])
++    desc_h = make_tensor_descriptor(h, [V, K], [K, 1], [BV, BK])
+     for i_k in range(tl.cdiv(K, BK)):
+-        p_q = tl.make_block_ptr(
+-            q, (T, K), (Hg * K, 1), (i_t * BT, i_k * BK), (BT, BK), (1, 0)
+-        )
+-        p_k = tl.make_block_ptr(
+-            k, (K, T), (1, Hg * K), (i_k * BK, i_t * BT), (BK, BT), (0, 1)
+-        )
+-        p_h = tl.make_block_ptr(
+-            h, (V, K), (K, 1), (i_v * BV, i_k * BK), (BV, BK), (1, 0)
+-        )
+         # [BT, BK]
+-        b_q = tl.load(p_q, boundary_check=(0, 1))
++        b_q = desc_q.load([i_t * BT, i_k * BK])
+         # [BK, BT]
+-        b_k = tl.load(p_k, boundary_check=(0, 1))
++        b_k = tl.trans(desc_k.load([i_t * BT, i_k * BK]))
+         # [BV, BK]
+-        b_h = tl.load(p_h, boundary_check=(0, 1))
++        b_h = desc_h.load([i_v * BV, i_k * BK])
+ 
+         # [BT, BK] @ [BK, BV] -> [BT, BV]
+         b_o += tl.dot(b_q, tl.trans(b_h))
+@@ -114,8 +108,8 @@ def chunk_fwd_kernel_o(
+ 
+     if USE_G:
+         g += bos * H + i_h
+-        p_g = tl.make_block_ptr(g, (T,), (H,), (i_t * BT,), (BT,), (0,))
+-        b_g = tl.load(p_g, boundary_check=(0,))
++        o_tg = i_t * BT + tl.arange(0, BT)
++        b_g = tl.load(g + o_tg * H, mask=o_tg < T, other=0.0)
+         b_o = b_o * exp(b_g)[:, None]
+         b_A = b_A * exp(b_g[:, None] - b_g[None, :])
+ 
+@@ -124,18 +118,14 @@ def chunk_fwd_kernel_o(
+     m_A = (o_t[:, None] >= o_t[None, :]) & (m_t[:, None] & m_t)
+     b_A = tl.where(m_A, b_A, 0)
+ 
+-    p_v = tl.make_block_ptr(
+-        v, (T, V), (H * V, 1), (i_t * BT, i_v * BV), (BT, BV), (1, 0)
+-    )
+-    p_o = tl.make_block_ptr(
+-        o, (T, V), (H * V, 1), (i_t * BT, i_v * BV), (BT, BV), (1, 0)
+-    )
+-    b_v = tl.load(p_v, boundary_check=(0, 1))
++    desc_v = make_tensor_descriptor(v, [T, V], [H * V, 1], [BT, BV])
++    desc_o = make_tensor_descriptor(o, [T, V], [H * V, 1], [BT, BV])
++    b_v = desc_v.load([i_t * BT, i_v * BV])
+ 
+     # to fix mma -> mma layout conversion
+     # already solved by triton v3.2 or higher
+     b_o = b_o * scale + tl.dot(b_A.to(b_v.dtype), b_v) * scale
+-    tl.store(p_o, b_o.to(p_o.dtype.element_ty), boundary_check=(0, 1))
++    desc_o.store([i_t * BT, i_v * BV], b_o.to(desc_o.dtype))
+ 
+ 
+ def chunk_fwd_o(
+diff --git a/vllm/third_party/flash_linear_attention/ops/chunk_scaled_dot_kkt.py b/vllm/third_party/flash_linear_attention/ops/chunk_scaled_dot_kkt.py
+index 10ff970c809f..932756cf2764 100644
+--- a/vllm/third_party/flash_linear_attention/ops/chunk_scaled_dot_kkt.py
++++ b/vllm/third_party/flash_linear_attention/ops/chunk_scaled_dot_kkt.py
+@@ -14,7 +14,7 @@
+ from vllm.triton_utils import tl, triton
+ 
+ from .index import prepare_chunk_indices
+-from .op import exp
++from .op import exp, make_tensor_descriptor
+ from .utils import FLA_CHUNK_SIZE
+ 
+ # On RDNA (gfx11xx/gfx12xx) WMMA only
+@@ -78,22 +78,14 @@ def chunk_scaled_dot_kkt_fwd_kernel(
+     o_t = i_t * BT + tl.arange(0, BT)
+     m_t = o_t < T
+ 
+-    p_beta = tl.make_block_ptr(
+-        beta + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,)
++    b_beta = tl.load(beta + (bos + o_t) * H + i_h, mask=m_t, other=0.0)
++    desc_k = make_tensor_descriptor(
++        k + (bos * Hg + i_h // (H // Hg)) * K, [T, K], [Hg * K, 1], [BT, BK]
+     )
+-    b_beta = tl.load(p_beta, boundary_check=(0,))
+ 
+     b_A = tl.zeros([BT, BT], dtype=tl.float32)
+     for i_k in range(tl.cdiv(K, BK)):
+-        p_k = tl.make_block_ptr(
+-            k + (bos * Hg + i_h // (H // Hg)) * K,
+-            (T, K),
+-            (Hg * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
+-        )
+-        b_k = tl.load(p_k, boundary_check=(0, 1))
++        b_k = desc_k.load([i_t * BT, i_k * BK])
+         b_kb = b_k * b_beta[:, None]
+         if CAST_DOT_TO_K_DTYPE:
+             # RDNA: force operands to k's native dtype so WMMA is used.
+@@ -103,17 +95,16 @@ def chunk_scaled_dot_kkt_fwd_kernel(
+             b_A += tl.dot(b_kb, tl.trans(b_k).to(b_kb.dtype))
+ 
+     if USE_G:
+-        p_g = tl.make_block_ptr(g + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,))
+-        b_g = tl.load(p_g, boundary_check=(0,))
++        b_g = tl.load(g + (bos + o_t) * H + i_h, mask=m_t, other=0.0)
+         b_g_diff = b_g[:, None] - b_g[None, :]
+         b_A = b_A * exp(b_g_diff)
+ 
+     m_A = (o_t[:, None] > o_t[None, :]) & (m_t[:, None] & m_t)
+     b_A = tl.where(m_A, b_A, 0)
+-    p_A = tl.make_block_ptr(
+-        A + (bos * H + i_h) * BT, (T, BT), (BT * H, 1), (i_t * BT, 0), (BT, BT), (1, 0)
++    desc_A = make_tensor_descriptor(
++        A + (bos * H + i_h) * BT, [T, BT], [BT * H, 1], [BT, BT]
+     )
+-    tl.store(p_A, b_A.to(p_A.dtype.element_ty), boundary_check=(0, 1))
++    desc_A.store([i_t * BT, 0], b_A.to(desc_A.dtype))
+ 
+ 
+ def chunk_scaled_dot_kkt_fwd(
+diff --git a/vllm/third_party/flash_linear_attention/ops/cumsum.py b/vllm/third_party/flash_linear_attention/ops/cumsum.py
+index b0820104b1a1..7458a6ba0e31 100644
+--- a/vllm/third_party/flash_linear_attention/ops/cumsum.py
++++ b/vllm/third_party/flash_linear_attention/ops/cumsum.py
+@@ -13,6 +13,7 @@
+ from vllm.triton_utils import tl, triton
+ 
+ from .index import prepare_chunk_indices
++from .op import make_tensor_descriptor
+ from .utils import check_shared_mem, input_guard
+ 
+ BS_LIST = [32, 64] if check_shared_mem() else [16, 32]
+@@ -52,23 +53,19 @@ def chunk_local_cumsum_scalar_kernel(
+     else:
+         bos, eos = i_b * T, i_b * T + T
+ 
++    o_t = i_t * BT + tl.arange(0, BT)
++    m_t = o_t < T
+     if HEAD_FIRST:
+-        p_s = tl.make_block_ptr(
+-            s + bos * H + i_h * T, (T,), (1,), (i_t * BT,), (BT,), (0,)
+-        )
+-        p_o = tl.make_block_ptr(
+-            o + bos * H + i_h * T, (T,), (1,), (i_t * BT,), (BT,), (0,)
+-        )
++        o_s = bos * H + i_h * T + o_t
+     else:
+-        p_s = tl.make_block_ptr(s + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,))
+-        p_o = tl.make_block_ptr(o + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,))
++        o_s = (bos + o_t) * H + i_h
+     # [BT]
+-    b_s = tl.load(p_s, boundary_check=(0,)).to(tl.float32)
++    b_s = tl.load(s + o_s, mask=m_t, other=0).to(tl.float32)
+     b_o = tl.cumsum(b_s, axis=0)
+     if REVERSE:
+         b_z = tl.sum(b_s, axis=0)
+         b_o = -b_o + b_z[None] + b_s
+-    tl.store(p_o, b_o.to(p_o.dtype.element_ty), boundary_check=(0,))
++    tl.store(o + o_s, b_o.to(o.dtype.element_ty), mask=m_t)
+ 
+ 
+ @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
+@@ -118,43 +115,23 @@ def chunk_local_cumsum_vector_kernel(
+         m_s = tl.where(o_i[:, None] >= o_i[None, :], 1.0, 0.0)
+ 
+     if HEAD_FIRST:
+-        p_s = tl.make_block_ptr(
+-            s + (bos * H + i_h * T) * S,
+-            (T, S),
+-            (S, 1),
+-            (i_t * BT, i_s * BS),
+-            (BT, BS),
+-            (1, 0),
++        desc_s = make_tensor_descriptor(
++            s + (bos * H + i_h * T) * S, [T, S], [S, 1], [BT, BS]
+         )
+-        p_o = tl.make_block_ptr(
+-            o + (bos * H + i_h * T) * S,
+-            (T, S),
+-            (S, 1),
+-            (i_t * BT, i_s * BS),
+-            (BT, BS),
+-            (1, 0),
++        desc_o = make_tensor_descriptor(
++            o + (bos * H + i_h * T) * S, [T, S], [S, 1], [BT, BS]
+         )
+     else:
+-        p_s = tl.make_block_ptr(
+-            s + (bos * H + i_h) * S,
+-            (T, S),
+-            (H * S, 1),
+-            (i_t * BT, i_s * BS),
+-            (BT, BS),
+-            (1, 0),
++        desc_s = make_tensor_descriptor(
++            s + (bos * H + i_h) * S, [T, S], [H * S, 1], [BT, BS]
+         )
+-        p_o = tl.make_block_ptr(
+-            o + (bos * H + i_h) * S,
+-            (T, S),
+-            (H * S, 1),
+-            (i_t * BT, i_s * BS),
+-            (BT, BS),
+-            (1, 0),
++        desc_o = make_tensor_descriptor(
++            o + (bos * H + i_h) * S, [T, S], [H * S, 1], [BT, BS]
+         )
+     # [BT, BS]
+-    b_s = tl.load(p_s, boundary_check=(0, 1)).to(tl.float32)
++    b_s = desc_s.load([i_t * BT, i_s * BS]).to(tl.float32)
+     b_o = tl.dot(m_s, b_s, allow_tf32=False)
+-    tl.store(p_o, b_o.to(p_o.dtype.element_ty), boundary_check=(0, 1))
++    desc_o.store([i_t * BT, i_s * BS], b_o.to(desc_o.dtype))
+ 
+ 
+ def chunk_local_cumsum_scalar(
+diff --git a/vllm/third_party/flash_linear_attention/ops/fused_norm_gate.py b/vllm/third_party/flash_linear_attention/ops/fused_norm_gate.py
+index 8f58ddcf8c7f..130cb9ab5e61 100644
+--- a/vllm/third_party/flash_linear_attention/ops/fused_norm_gate.py
++++ b/vllm/third_party/flash_linear_attention/ops/fused_norm_gate.py
+@@ -15,6 +15,8 @@
+ from vllm.triton_utils import tl, triton
+ from vllm.utils.math_utils import cdiv, next_power_of_2
+ 
++from .op import make_tensor_descriptor
++
+ 
+ @triton.heuristics(
+     {
+@@ -59,22 +61,19 @@ def layer_norm_gated_fwd_kernel(
+         tl.extra.cuda.gdc_wait()
+         tl.extra.cuda.gdc_launch_dependents()
+ 
+-    p_x = tl.make_block_ptr(x, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0))
+-    b_x = tl.load(p_x, boundary_check=(0, 1)).to(tl.float32)
++    o_t = i_t * BT + tl.arange(0, BT)
++    m_t = o_t < T
++    desc_x = make_tensor_descriptor(x, [T, D], [D, 1], [BT, BD])
++    b_x = desc_x.load([i_t * BT, 0]).to(tl.float32)
+     if HAS_RESIDUAL:
+-        p_res = tl.make_block_ptr(
+-            residual, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0)
+-        )
+-        b_x += tl.load(p_res, boundary_check=(0, 1)).to(tl.float32)
++        desc_res = make_tensor_descriptor(residual, [T, D], [D, 1], [BT, BD])
++        b_x += desc_res.load([i_t * BT, 0]).to(tl.float32)
+     if STORE_RESIDUAL_OUT:
+-        p_res_out = tl.make_block_ptr(
+-            residual_out, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0)
+-        )
+-        tl.store(p_res_out, b_x.to(p_res_out.dtype.element_ty), boundary_check=(0, 1))
++        desc_res_out = make_tensor_descriptor(residual_out, [T, D], [D, 1], [BT, BD])
++        desc_res_out.store([i_t * BT, 0], b_x.to(desc_res_out.dtype))
+     if not IS_RMS_NORM:
+         b_mean = tl.sum(b_x, axis=1) / D
+-        p_mean = tl.make_block_ptr(mean, (T,), (1,), (i_t * BT,), (BT,), (0,))
+-        tl.store(p_mean, b_mean.to(p_mean.dtype.element_ty), boundary_check=(0,))
++        tl.store(mean + o_t, b_mean.to(mean.dtype.element_ty), mask=m_t)
+         b_xbar = tl.where(m_d[None, :], b_x - b_mean[:, None], 0.0)
+         b_var = tl.sum(b_xbar * b_xbar, axis=1) / D
+     else:
+@@ -82,8 +81,7 @@ def layer_norm_gated_fwd_kernel(
+         b_var = tl.sum(b_xbar * b_xbar, axis=1) / D
+     b_rstd = 1 / tl.sqrt(b_var + eps)
+ 
+-    p_rstd = tl.make_block_ptr(rstd, (T,), (1,), (i_t * BT,), (BT,), (0,))
+-    tl.store(p_rstd, b_rstd.to(p_rstd.dtype.element_ty), boundary_check=(0,))
++    tl.store(rstd + o_t, b_rstd.to(rstd.dtype.element_ty), mask=m_t)
+ 
+     if HAS_WEIGHT:
+         b_w = tl.load(w + o_d, mask=m_d).to(tl.float32)
+@@ -99,7 +97,6 @@ def layer_norm_gated_fwd_kernel(
+         b_y = b_y + b_b[None, :]
+ 
+     # swish/sigmoid output gate
+-    o_t = i_t * BT + tl.arange(0, BT)
+     o_g = (o_t // H) * g_stride_n + (o_t % H) * D
+     b_g = tl.load(
+         g + o_g[:, None] + o_d[None, :],
+@@ -112,8 +109,8 @@ def layer_norm_gated_fwd_kernel(
+         b_y = b_y * tl.sigmoid(b_g)
+ 
+     # Write output
+-    p_y = tl.make_block_ptr(y, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0))
+-    tl.store(p_y, b_y.to(p_y.dtype.element_ty), boundary_check=(0, 1))
++    desc_y = make_tensor_descriptor(y, [T, D], [D, 1], [BT, BD])
++    desc_y.store([i_t * BT, 0], b_y.to(desc_y.dtype))
+ 
+ 
+ @triton.heuristics(
+diff --git a/vllm/third_party/flash_linear_attention/ops/kda.py b/vllm/third_party/flash_linear_attention/ops/kda.py
+index b5c3a92b65e7..c58a3e41d4b9 100644
+--- a/vllm/third_party/flash_linear_attention/ops/kda.py
++++ b/vllm/third_party/flash_linear_attention/ops/kda.py
+@@ -21,7 +21,7 @@
+ from .fused_recurrent import fused_recurrent_gated_delta_rule_fwd_kernel
+ from .index import prepare_chunk_indices
+ from .l2norm import l2norm_fwd
+-from .op import exp2, log
++from .op import exp2, log, make_tensor_descriptor
+ from .solve_tril import solve_tril
+ from .utils import FLA_CHUNK_SIZE, is_amd
+ 
+@@ -183,22 +183,20 @@ def layer_norm_gated_fwd_kernel(
+     o_d = tl.arange(0, BD)
+     m_d = o_d < D
+ 
+-    p_x = tl.make_block_ptr(x, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0))
+-    b_x = tl.load(p_x, boundary_check=(0, 1)).to(tl.float32)
++    o_t = i_t * BT + tl.arange(0, BT)
++    m_t = o_t < T
++
++    desc_x = make_tensor_descriptor(x, [T, D], [D, 1], [BT, BD])
++    b_x = desc_x.load([i_t * BT, 0]).to(tl.float32)
+     if HAS_RESIDUAL:
+-        p_res = tl.make_block_ptr(
+-            residual, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0)
+-        )
+-        b_x += tl.load(p_res, boundary_check=(0, 1)).to(tl.float32)
++        desc_res = make_tensor_descriptor(residual, [T, D], [D, 1], [BT, BD])
++        b_x += desc_res.load([i_t * BT, 0]).to(tl.float32)
+     if STORE_RESIDUAL_OUT:
+-        p_res_out = tl.make_block_ptr(
+-            residual_out, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0)
+-        )
+-        tl.store(p_res_out, b_x.to(p_res_out.dtype.element_ty), boundary_check=(0, 1))
++        desc_res_out = make_tensor_descriptor(residual_out, [T, D], [D, 1], [BT, BD])
++        desc_res_out.store([i_t * BT, 0], b_x.to(desc_res_out.dtype))
+     if not IS_RMS_NORM:
+         b_mean = tl.sum(b_x, axis=1) / D
+-        p_mean = tl.make_block_ptr(mean, (T,), (1,), (i_t * BT,), (BT,), (0,))
+-        tl.store(p_mean, b_mean.to(p_mean.dtype.element_ty), boundary_check=(0,))
++        tl.store(mean + o_t, b_mean.to(mean.dtype.element_ty), mask=m_t)
+         b_xbar = tl.where(m_d[None, :], b_x - b_mean[:, None], 0.0)
+         b_var = tl.sum(b_xbar * b_xbar, axis=1) / D
+     else:
+@@ -206,8 +204,7 @@ def layer_norm_gated_fwd_kernel(
+         b_var = tl.sum(b_xbar * b_xbar, axis=1) / D
+     b_rstd = 1 / tl.sqrt(b_var + eps)
+ 
+-    p_rstd = tl.make_block_ptr(rstd, (T,), (1,), (i_t * BT,), (BT,), (0,))
+-    tl.store(p_rstd, b_rstd.to(p_rstd.dtype.element_ty), boundary_check=(0,))
++    tl.store(rstd + o_t, b_rstd.to(rstd.dtype.element_ty), mask=m_t)
+ 
+     if HAS_WEIGHT:
+         b_w = tl.load(w + o_d, mask=m_d).to(tl.float32)
+@@ -223,7 +220,6 @@ def layer_norm_gated_fwd_kernel(
+         b_y = b_y + b_b[None, :]
+ 
+     # swish/sigmoid output gate
+-    o_t = i_t * BT + tl.arange(0, BT)
+     o_g = (o_t // H) * g_stride_n + (o_t % H) * D
+     b_g = tl.load(
+         g + o_g[:, None] + o_d[None, :],
+@@ -236,8 +232,8 @@ def layer_norm_gated_fwd_kernel(
+         b_y = b_y * tl.sigmoid(b_g)
+ 
+     # Write output
+-    p_y = tl.make_block_ptr(y, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0))
+-    tl.store(p_y, b_y.to(p_y.dtype.element_ty), boundary_check=(0, 1))
++    desc_y = make_tensor_descriptor(y, [T, D], [D, 1], [BT, BD])
++    desc_y.store([i_t * BT, 0], b_y.to(desc_y.dtype))
+ 
+ 
+ @triton.heuristics(
+@@ -603,58 +599,40 @@ def chunk_kda_scaled_dot_kkt_fwd_kernel_intra_sub_inter(
+     A += (bos * H + i_h) * BT
+     Aqk += (bos * H + i_h) * BT
+ 
+-    p_b = tl.make_block_ptr(
+-        beta + bos * H + i_h, (T,), (H,), (i_t * BT + i_i * BC,), (BC,), (0,)
+-    )
+-    b_b = tl.load(p_b, boundary_check=(0,))
++    o_b = i_t * BT + i_i * BC + tl.arange(0, BC)
++    b_b = tl.load(beta + (bos + o_b) * H + i_h, mask=o_b < T, other=0.0)
++
++    desc_q = make_tensor_descriptor(q, [T, K], [H * K, 1], [BC, BK])
++    desc_k = make_tensor_descriptor(k, [T, K], [H * K, 1], [BC, BK])
++    desc_g = make_tensor_descriptor(g, [T, K], [H * K, 1], [BC, BK])
+ 
+     b_A = tl.zeros([BC, BC], dtype=tl.float32)
+     b_Aqk = tl.zeros([BC, BC], dtype=tl.float32)
+     for i_k in range(tl.cdiv(K, BK)):
+-        p_q = tl.make_block_ptr(
+-            q, (T, K), (H * K, 1), (i_t * BT + i_i * BC, i_k * BK), (BC, BK), (1, 0)
+-        )
+-        p_k = tl.make_block_ptr(
+-            k, (T, K), (H * K, 1), (i_t * BT + i_i * BC, i_k * BK), (BC, BK), (1, 0)
+-        )
+-        p_g = tl.make_block_ptr(
+-            g, (T, K), (H * K, 1), (i_t * BT + i_i * BC, i_k * BK), (BC, BK), (1, 0)
+-        )
+-        b_kt = tl.make_block_ptr(
+-            k, (K, T), (1, H * K), (i_k * BK, i_t * BT + i_j * BC), (BK, BC), (0, 1)
+-        )
+-        p_gk = tl.make_block_ptr(
+-            g, (K, T), (1, H * K), (i_k * BK, i_t * BT + i_j * BC), (BK, BC), (0, 1)
+-        )
+-
+         o_k = i_k * BK + tl.arange(0, BK)
+         m_k = o_k < K
+         # [BK,]
+         b_gn = tl.load(g + (i_t * BT + i_i * BC) * H * K + o_k, mask=m_k, other=0)
+         # [BC, BK]
+-        b_g = tl.load(p_g, boundary_check=(0, 1))
+-        b_k = tl.load(p_k, boundary_check=(0, 1)) * exp2(b_g - b_gn[None, :])
++        b_g = desc_g.load([i_t * BT + i_i * BC, i_k * BK])
++        b_k = desc_k.load([i_t * BT + i_i * BC, i_k * BK]) * exp2(b_g - b_gn[None, :])
+         # [BK, BC]
+-        b_gk = tl.load(p_gk, boundary_check=(0, 1))
+-        b_kt = tl.load(b_kt, boundary_check=(0, 1))
++        b_gk = tl.trans(desc_g.load([i_t * BT + i_j * BC, i_k * BK]))
++        b_kt = tl.trans(desc_k.load([i_t * BT + i_j * BC, i_k * BK]))
+         # [BC, BC]
+         b_ktg = b_kt * exp2(b_gn[:, None] - b_gk)
+         b_A += tl.dot(b_k, b_ktg)
+ 
+-        b_q = tl.load(p_q, boundary_check=(0, 1))
++        b_q = desc_q.load([i_t * BT + i_i * BC, i_k * BK])
+         b_qg = b_q * exp2(b_g - b_gn[None, :]) * scale
+         b_Aqk += tl.dot(b_qg, b_ktg)
+ 
+     b_A *= b_b[:, None]
+ 
+-    p_A = tl.make_block_ptr(
+-        A, (T, BT), (H * BT, 1), (i_t * BT + i_i * BC, i_j * BC), (BC, BC), (1, 0)
+-    )
+-    tl.store(p_A, b_A.to(A.dtype.element_ty), boundary_check=(0, 1))
+-    p_Aqk = tl.make_block_ptr(
+-        Aqk, (T, BT), (H * BT, 1), (i_t * BT + i_i * BC, i_j * BC), (BC, BC), (1, 0)
+-    )
+-    tl.store(p_Aqk, b_Aqk.to(Aqk.dtype.element_ty), boundary_check=(0, 1))
++    desc_A = make_tensor_descriptor(A, [T, BT], [H * BT, 1], [BC, BC])
++    desc_A.store([i_t * BT + i_i * BC, i_j * BC], b_A.to(desc_A.dtype))
++    desc_Aqk = make_tensor_descriptor(Aqk, [T, BT], [H * BT, 1], [BC, BC])
++    desc_Aqk.store([i_t * BT + i_i * BC, i_j * BC], b_Aqk.to(desc_Aqk.dtype))
+ 
+ 
+ @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
+@@ -705,33 +683,18 @@ def chunk_kda_scaled_dot_kkt_fwd_kernel_intra_sub_intra(
+     m_A = (i_t * BT + i_i * BC + o_i) < T
+     o_A = (bos + i_t * BT + i_i * BC + o_i) * H * BT + i_h * BT + i_i * BC
+ 
+-    p_q = tl.make_block_ptr(
+-        q + (bos * H + i_h) * K,
+-        (T, K),
+-        (H * K, 1),
+-        (i_t * BT + i_i * BC, 0),
+-        (BC, BK),
+-        (1, 0),
++    desc_q = make_tensor_descriptor(
++        q + (bos * H + i_h) * K, [T, K], [H * K, 1], [BC, BK]
+     )
+-    p_k = tl.make_block_ptr(
+-        k + (bos * H + i_h) * K,
+-        (T, K),
+-        (H * K, 1),
+-        (i_t * BT + i_i * BC, 0),
+-        (BC, BK),
+-        (1, 0),
++    desc_k = make_tensor_descriptor(
++        k + (bos * H + i_h) * K, [T, K], [H * K, 1], [BC, BK]
+     )
+-    p_g = tl.make_block_ptr(
+-        g + (bos * H + i_h) * K,
+-        (T, K),
+-        (H * K, 1),
+-        (i_t * BT + i_i * BC, 0),
+-        (BC, BK),
+-        (1, 0),
++    desc_g = make_tensor_descriptor(
++        g + (bos * H + i_h) * K, [T, K], [H * K, 1], [BC, BK]
+     )
+-    b_q = tl.load(p_q, boundary_check=(0, 1))
+-    b_k = tl.load(p_k, boundary_check=(0, 1))
+-    b_g = tl.load(p_g, boundary_check=(0, 1))
++    b_q = desc_q.load([i_t * BT + i_i * BC, 0])
++    b_k = desc_k.load([i_t * BT + i_i * BC, 0])
++    b_g = desc_g.load([i_t * BT + i_i * BC, 0])
+ 
+     p_b = beta + (bos + i_t * BT + i_i * BC + o_i) * H + i_h
+     b_k = b_k * tl.load(p_b, mask=m_A, other=0)[:, None]
+@@ -892,86 +855,56 @@ def recompute_w_u_fwd_kernel(
+         T = eos - bos
+     else:
+         bos, eos = i_b * T, i_b * T + T
+-    p_b = tl.make_block_ptr(beta + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,))
+-    b_b = tl.load(p_b, boundary_check=(0,))
++    o_t = i_t * BT + tl.arange(0, BT)
++    b_b = tl.load(beta + (bos + o_t) * H + i_h, mask=o_t < T, other=0.0)
+ 
+-    p_A = tl.make_block_ptr(
+-        A + (bos * H + i_h) * BT, (T, BT), (H * BT, 1), (i_t * BT, 0), (BT, BT), (1, 0)
++    desc_A = make_tensor_descriptor(
++        A + (bos * H + i_h) * BT, [T, BT], [H * BT, 1], [BT, BT]
+     )
+-    b_A = tl.load(p_A, boundary_check=(0, 1))
++    b_A = desc_A.load([i_t * BT, 0])
+ 
++    desc_v = make_tensor_descriptor(
++        v + (bos * H + i_h) * V, [T, V], [H * V, 1], [BT, BV]
++    )
++    desc_u = make_tensor_descriptor(
++        u + (bos * H + i_h) * V, [T, V], [H * V, 1], [BT, BV]
++    )
+     for i_v in range(tl.cdiv(V, BV)):
+-        p_v = tl.make_block_ptr(
+-            v + (bos * H + i_h) * V,
+-            (T, V),
+-            (H * V, 1),
+-            (i_t * BT, i_v * BV),
+-            (BT, BV),
+-            (1, 0),
+-        )
+-        p_u = tl.make_block_ptr(
+-            u + (bos * H + i_h) * V,
+-            (T, V),
+-            (H * V, 1),
+-            (i_t * BT, i_v * BV),
+-            (BT, BV),
+-            (1, 0),
+-        )
+-        b_v = tl.load(p_v, boundary_check=(0, 1))
++        b_v = desc_v.load([i_t * BT, i_v * BV])
+         b_vb = (b_v * b_b[:, None]).to(b_v.dtype)
+         b_u = tl.dot(b_A, b_vb, input_precision=DOT_PRECISION)
+-        tl.store(p_u, b_u.to(p_u.dtype.element_ty), boundary_check=(0, 1))
++        desc_u.store([i_t * BT, i_v * BV], b_u.to(desc_u.dtype))
+ 
+-    for i_k in range(tl.cdiv(K, BK)):
+-        p_w = tl.make_block_ptr(
+-            w + (bos * H + i_h) * K,
+-            (T, K),
+-            (H * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
++    desc_w = make_tensor_descriptor(
++        w + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
++    )
++    desc_k = make_tensor_descriptor(
++        k + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
++    )
++    desc_gk = make_tensor_descriptor(
++        gk + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
++    )
++    if STORE_QG:
++        desc_q = make_tensor_descriptor(
++            q + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
++        )
++        desc_qg = make_tensor_descriptor(
++            qg + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
+         )
+-        p_k = tl.make_block_ptr(
+-            k + (bos * H + i_h) * K,
+-            (T, K),
+-            (H * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
++    if STORE_KG:
++        desc_kg = make_tensor_descriptor(
++            kg + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
+         )
+-        b_k = tl.load(p_k, boundary_check=(0, 1))
++    for i_k in range(tl.cdiv(K, BK)):
++        b_k = desc_k.load([i_t * BT, i_k * BK])
+         b_kb = b_k * b_b[:, None]
+ 
+-        p_gk = tl.make_block_ptr(
+-            gk + (bos * H + i_h) * K,
+-            (T, K),
+-            (H * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
+-        )
+-        b_gk = tl.load(p_gk, boundary_check=(0, 1))
++        b_gk = desc_gk.load([i_t * BT, i_k * BK])
+         b_kb *= exp2(b_gk)
+         if STORE_QG:
+-            p_q = tl.make_block_ptr(
+-                q + (bos * H + i_h) * K,
+-                (T, K),
+-                (H * K, 1),
+-                (i_t * BT, i_k * BK),
+-                (BT, BK),
+-                (1, 0),
+-            )
+-            p_qg = tl.make_block_ptr(
+-                qg + (bos * H + i_h) * K,
+-                (T, K),
+-                (H * K, 1),
+-                (i_t * BT, i_k * BK),
+-                (BT, BK),
+-                (1, 0),
+-            )
+-            b_q = tl.load(p_q, boundary_check=(0, 1))
++            b_q = desc_q.load([i_t * BT, i_k * BK])
+             b_qg = b_q * exp2(b_gk)
+-            tl.store(p_qg, b_qg.to(p_qg.dtype.element_ty), boundary_check=(0, 1))
++            desc_qg.store([i_t * BT, i_k * BK], b_qg.to(desc_qg.dtype))
+         if STORE_KG:
+             last_idx = min(i_t * BT + BT, T) - 1
+ 
+@@ -981,19 +914,10 @@ def recompute_w_u_fwd_kernel(
+                 gk + ((bos + last_idx) * H + i_h) * K + o_k, mask=m_k, other=0.0
+             )
+             b_kg = b_k * exp2(b_gn - b_gk)
+-
+-            p_kg = tl.make_block_ptr(
+-                kg + (bos * H + i_h) * K,
+-                (T, K),
+-                (H * K, 1),
+-                (i_t * BT, i_k * BK),
+-                (BT, BK),
+-                (1, 0),
+-            )
+-            tl.store(p_kg, b_kg.to(p_kg.dtype.element_ty), boundary_check=(0, 1))
++            desc_kg.store([i_t * BT, i_k * BK], b_kg.to(desc_kg.dtype))
+ 
+         b_w = tl.dot(b_A, b_kb.to(b_k.dtype))
+-        tl.store(p_w, b_w.to(p_w.dtype.element_ty), boundary_check=(0, 1))
++        desc_w.store([i_t * BT, i_k * BK], b_w.to(desc_w.dtype))
+ 
+ 
+ def recompute_w_u_fwd(
+@@ -1096,70 +1020,44 @@ def chunk_gla_fwd_kernel_o(
+     m_s = tl.arange(0, BT)[:, None] >= tl.arange(0, BT)[None, :]
+ 
+     b_o = tl.zeros([BT, BV], dtype=tl.float32)
++    desc_q = make_tensor_descriptor(
++        q + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
++    )
++    desc_g = make_tensor_descriptor(
++        g + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
++    )
++    desc_h = make_tensor_descriptor(
++        h + (i_tg * H + i_h).to(tl.int64) * K * V, [V, K], [K, 1], [BV, BK]
++    )
+     for i_k in range(tl.cdiv(K, BK)):
+-        p_q = tl.make_block_ptr(
+-            q + (bos * H + i_h) * K,
+-            (T, K),
+-            (H * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
+-        )
+-        p_g = tl.make_block_ptr(
+-            g + (bos * H + i_h) * K,
+-            (T, K),
+-            (H * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
+-        )
+-        p_h = tl.make_block_ptr(
+-            h + (i_tg * H + i_h) * K * V,
+-            (V, K),
+-            (K, 1),
+-            (i_v * BV, i_k * BK),
+-            (BV, BK),
+-            (1, 0),
+-        )
+-
+         # [BT, BK]
+-        b_q = tl.load(p_q, boundary_check=(0, 1))
++        b_q = desc_q.load([i_t * BT, i_k * BK])
+         b_q = (b_q * scale).to(b_q.dtype)
+         # [BT, BK]
+-        b_g = tl.load(p_g, boundary_check=(0, 1))
++        b_g = desc_g.load([i_t * BT, i_k * BK])
+         # [BT, BK]
+         b_qg = (b_q * exp2(b_g)).to(b_q.dtype)
+         # [BV, BK]
+-        b_h = tl.load(p_h, boundary_check=(0, 1))
++        b_h = desc_h.load([i_v * BV, i_k * BK])
+         # [BT, BV]
+         if i_k >= 0:
+             b_o += tl.dot(b_qg, tl.trans(b_h).to(b_qg.dtype))
+-    p_v = tl.make_block_ptr(
+-        v + (bos * H + i_h) * V,
+-        (T, V),
+-        (H * V, 1),
+-        (i_t * BT, i_v * BV),
+-        (BT, BV),
+-        (1, 0),
++    desc_v = make_tensor_descriptor(
++        v + (bos * H + i_h) * V, [T, V], [H * V, 1], [BT, BV]
+     )
+-    p_o = tl.make_block_ptr(
+-        o + (bos * H + i_h) * V,
+-        (T, V),
+-        (H * V, 1),
+-        (i_t * BT, i_v * BV),
+-        (BT, BV),
+-        (1, 0),
++    desc_o = make_tensor_descriptor(
++        o + (bos * H + i_h) * V, [T, V], [H * V, 1], [BT, BV]
+     )
+-    p_A = tl.make_block_ptr(
+-        A + (bos * H + i_h) * BT, (T, BT), (H * BT, 1), (i_t * BT, 0), (BT, BT), (1, 0)
++    desc_A = make_tensor_descriptor(
++        A + (bos * H + i_h) * BT, [T, BT], [H * BT, 1], [BT, BT]
+     )
+     # [BT, BV]
+-    b_v = tl.load(p_v, boundary_check=(0, 1))
++    b_v = desc_v.load([i_t * BT, i_v * BV])
+     # [BT, BT]
+-    b_A = tl.load(p_A, boundary_check=(0, 1))
++    b_A = desc_A.load([i_t * BT, 0])
+     b_A = tl.where(m_s, b_A, 0.0).to(b_v.dtype)
+     b_o += tl.dot(b_A, b_v, allow_tf32=False)
+-    tl.store(p_o, b_o.to(p_o.dtype.element_ty), boundary_check=(0, 1))
++    desc_o.store([i_t * BT, i_v * BV], b_o.to(desc_o.dtype))
+ 
+ 
+ def chunk_gla_fwd_o_gk(
+@@ -1253,24 +1151,14 @@ def kda_gate_cumsum_fwd_kernel(
+     else:
+         bos = i_b * T
+ 
+-    p_g = tl.make_block_ptr(
+-        g + (bos * H + i_h) * D,
+-        (T, D),
+-        (H * D, 1),
+-        (i_t * BT, i_d * BD),
+-        (BT, BD),
+-        (1, 0),
++    desc_g = make_tensor_descriptor(
++        g + (bos * H + i_h) * D, [T, D], [H * D, 1], [BT, BD]
+     )
+-    p_y = tl.make_block_ptr(
+-        y + (bos * H + i_h) * D,
+-        (T, D),
+-        (H * D, 1),
+-        (i_t * BT, i_d * BD),
+-        (BT, BD),
+-        (1, 0),
++    desc_y = make_tensor_descriptor(
++        y + (bos * H + i_h) * D, [T, D], [H * D, 1], [BT, BD]
+     )
+ 
+-    b_g = tl.load(p_g, boundary_check=(0, 1)).to(tl.float32)
++    b_g = desc_g.load([i_t * BT, i_d * BD]).to(tl.float32)
+     if HAS_BIAS:
+         o_d = i_d * BD + tl.arange(0, BD)
+         b_bias = tl.load(g_bias + i_h * D + o_d, mask=o_d < D, other=0.0).to(tl.float32)
+@@ -1290,12 +1178,12 @@ def kda_gate_cumsum_fwd_kernel(
+ 
+     # Out-of-bounds rows (load returns 0, but softplus/bias can still make
+     # b_gate non-zero) participate in the dot product. They only contribute to
+-    # out-of-bounds output rows, which are masked away by `boundary_check` on
+-    # the store, so visible output matches unfused gate + chunk-local cumsum.
++    # out-of-bounds output rows, which the descriptor store clips at the tensor
++    # bounds, so visible output matches unfused gate + chunk-local cumsum.
+     o_t = tl.arange(0, BT)
+     m_cumsum = tl.where(o_t[:, None] >= o_t[None, :], 1.0, 0.0)
+     b_y = tl.dot(m_cumsum, b_gate, allow_tf32=False) * cumsum_scale
+-    tl.store(p_y, b_y.to(p_y.dtype.element_ty), boundary_check=(0, 1))
++    desc_y.store([i_t * BT, i_d * BD], b_y.to(desc_y.dtype))
+ 
+ 
+ def fused_kda_gate_chunk_cumsum(
+@@ -1611,27 +1499,11 @@ def kda_gate_fwd_kernel(
+     b_a = tl.exp(tl.load(A + i_h).to(tl.float32))
+ 
+     stride_row = H * D
+-    stride_col = 1
+-
+-    g_ptr = tl.make_block_ptr(
+-        base=g + i_h * D,
+-        shape=(T, D),
+-        strides=(stride_row, stride_col),
+-        offsets=(n_t, 0),
+-        block_shape=(BT, BD),
+-        order=(1, 0),
+-    )
+ 
+-    y_ptr = tl.make_block_ptr(
+-        base=y + i_h * D,
+-        shape=(T, D),
+-        strides=(stride_row, stride_col),
+-        offsets=(n_t, 0),
+-        block_shape=(BT, BD),
+-        order=(1, 0),
+-    )
++    desc_g = make_tensor_descriptor(g + i_h * D, [T, D], [stride_row, 1], [BT, BD])
++    desc_y = make_tensor_descriptor(y + i_h * D, [T, D], [stride_row, 1], [BT, BD])
+ 
+-    b_g = tl.load(g_ptr, boundary_check=(0, 1)).to(tl.float32)
++    b_g = desc_g.load([n_t, 0]).to(tl.float32)
+ 
+     if HAS_BIAS:
+         n_d = tl.arange(0, BD)
+@@ -1649,7 +1521,7 @@ def kda_gate_fwd_kernel(
+         sp = tl.where(use_linear, b_g, (1.0 / beta) * log(1.0 + tl.exp(g_scaled)))
+         b_y = -b_a * sp
+ 
+-    tl.store(y_ptr, b_y.to(y.dtype.element_ty), boundary_check=(0, 1))
++    desc_y.store([n_t, 0], b_y.to(desc_y.dtype))
+ 
+ 
+ def fused_kda_gate(
+diff --git a/vllm/third_party/flash_linear_attention/ops/l2norm.py b/vllm/third_party/flash_linear_attention/ops/l2norm.py
+index 2eb137a242fb..1c7623230383 100644
+--- a/vllm/third_party/flash_linear_attention/ops/l2norm.py
++++ b/vllm/third_party/flash_linear_attention/ops/l2norm.py
+@@ -13,6 +13,8 @@
+ 
+ from vllm.triton_utils import tl, triton
+ 
++from .op import make_tensor_descriptor
++
+ BT_LIST = [8, 16, 32, 64, 128]
+ 
+ USE_DEFAULT_FLA_NORM = int(os.getenv("USE_DEFAULT_FLA_NORM", "0"))
+@@ -67,12 +69,12 @@ def l2norm_fwd_kernel(
+     BD: tl.constexpr,
+ ):
+     i_t = tl.program_id(0)
+-    p_x = tl.make_block_ptr(x, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0))
+-    b_x = tl.load(p_x, boundary_check=(0, 1)).to(tl.float32)
++    desc_x = make_tensor_descriptor(x, [T, D], [D, 1], [BT, BD])
++    desc_y = make_tensor_descriptor(y, [T, D], [D, 1], [BT, BD])
++    b_x = desc_x.load([i_t * BT, 0]).to(tl.float32)
+     b_var = tl.sum(b_x * b_x, axis=1)
+     b_y = b_x / tl.sqrt(b_var + eps)[:, None]
+-    p_y = tl.make_block_ptr(y, (T, D), (D, 1), (i_t * BT, 0), (BT, BD), (1, 0))
+-    tl.store(p_y, b_y.to(p_y.dtype.element_ty), boundary_check=(0, 1))
++    desc_y.store([i_t * BT, 0], b_y.to(desc_y.dtype))
+ 
+ 
+ @triton.jit
+diff --git a/vllm/third_party/flash_linear_attention/ops/solve_tril.py b/vllm/third_party/flash_linear_attention/ops/solve_tril.py
+index 8d3811ca4c17..1280f642a47e 100644
+--- a/vllm/third_party/flash_linear_attention/ops/solve_tril.py
++++ b/vllm/third_party/flash_linear_attention/ops/solve_tril.py
+@@ -16,7 +16,7 @@
+ 
+ from .index import prepare_chunk_indices
+ from .op import make_tensor_descriptor
+-from .utils import input_guard, is_amd, is_tma_supported
++from .utils import input_guard, is_amd
+ 
+ FLA_TRIL_PRECISION = os.environ.get("FLA_TRIL_PRECISION", "ieee")
+ ALLOWED_TRIL_PRECISIONS = ["ieee", "tf32"] if is_amd else ["ieee", "tf32", "tf32x3"]
+@@ -43,7 +43,6 @@ def solve_tril_16x16_kernel(
+     T,
+     H: tl.constexpr,
+     BT: tl.constexpr,
+-    USE_TMA: tl.constexpr,
+     IS_VARLEN: tl.constexpr,
+     DOT_PRECISION: tl.constexpr,
+ ):
+@@ -69,16 +68,9 @@ def solve_tril_16x16_kernel(
+     Ai = Ai + (bos * H + i_h) * 16
+ 
+     offset = (i_t * 16) % BT
+-    if not USE_TMA:
+-        p_A = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * 16, offset), (16, 16), (1, 0)
+-        )
+-        # [16, 16]
+-        b_A = tl.load(p_A, boundary_check=(0, 1)).to(tl.float32)
+-    else:
+-        desc = make_tensor_descriptor(A, [T, BT], [H * BT, 1], [16, 16])
+-        desc_o = make_tensor_descriptor(Ai, [T, 16], [H * 16, 1], [16, 16])
+-        b_A = desc.load([i_t * 16, offset]).to(tl.float32)
++    desc = make_tensor_descriptor(A, [T, BT], [H * BT, 1], [16, 16])
++    desc_o = make_tensor_descriptor(Ai, [T, 16], [H * 16, 1], [16, 16])
++    b_A = desc.load([i_t * 16, offset]).to(tl.float32)
+     b_A = -tl.where(m_A, b_A, 0)
+ 
+     for i in range(2, min(16, T - i_t * 16)):
+@@ -87,17 +79,7 @@ def solve_tril_16x16_kernel(
+         b_a = b_a + tl.sum(b_a[:, None] * b_A, 0)
+         b_A = tl.where((o_i == i)[:, None], b_a, b_A)
+     b_A += m_I
+-    if not USE_TMA:
+-        p_Ai = tl.make_block_ptr(
+-            Ai, (T, 16), (H * 16, 1), (i_t * 16, 0), (16, 16), (1, 0)
+-        )
+-        tl.store(
+-            p_Ai,
+-            b_A.to(p_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-    else:
+-        desc_o.store([i_t * 16, 0], b_A.to(desc_o.dtype, fp_downcast_rounding="rtne"))
++    desc_o.store([i_t * 16, 0], b_A.to(desc_o.dtype, fp_downcast_rounding="rtne"))
+ 
+ 
+ @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
+@@ -118,7 +100,6 @@ def merge_16x16_to_32x32_inverse_kernel(
+     T,
+     H: tl.constexpr,
+     BT: tl.constexpr,
+-    USE_TMA: tl.constexpr,
+     IS_VARLEN: tl.constexpr,
+     DOT_PRECISION: tl.constexpr,
+ ):
+@@ -143,20 +124,10 @@ def merge_16x16_to_32x32_inverse_kernel(
+     A += (bos * H + i_h) * BT
+     Ai += (bos * H + i_h) * BT
+ 
+-    if not USE_TMA:
+-        p_A_11 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT, 0), (16, 16), (1, 0)
+-        )
+-        p_A_22 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 16, 16), (16, 16), (1, 0)
+-        )
+-        b_Ai_11 = tl.load(p_A_11, boundary_check=(0, 1)).to(tl.float32)
+-        b_Ai_22 = tl.load(p_A_22, boundary_check=(0, 1)).to(tl.float32)
+-    else:
+-        desc = make_tensor_descriptor(A, [T, BT], [H * BT, 1], [16, 16])
+-        desc_o = make_tensor_descriptor(Ai, [T, BT], [H * BT, 1], [16, 16])
+-        b_Ai_11 = desc.load([i_t * BT + 0, 0]).to(tl.float32)
+-        b_Ai_22 = desc.load([i_t * BT + 16, 16]).to(tl.float32)
++    desc = make_tensor_descriptor(A, [T, BT], [H * BT, 1], [16, 16])
++    desc_o = make_tensor_descriptor(Ai, [T, BT], [H * BT, 1], [16, 16])
++    b_Ai_11 = desc.load([i_t * BT + 0, 0]).to(tl.float32)
++    b_Ai_22 = desc.load([i_t * BT + 16, 16]).to(tl.float32)
+ 
+     # [16, 16]
+     b_Ai_11 = -tl.where(m_A, b_Ai_11, 0)
+@@ -174,13 +145,7 @@ def merge_16x16_to_32x32_inverse_kernel(
+     b_Ai_11 += m_I
+     b_Ai_22 += m_I
+ 
+-    if not USE_TMA:
+-        p_A_21 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 16, 0), (16, 16), (1, 0)
+-        )
+-        b_A_21 = tl.load(p_A_21, boundary_check=(0, 1)).to(tl.float32)
+-    else:
+-        b_A_21 = desc.load([i_t * BT + 16, 0]).to(tl.float32)
++    b_A_21 = desc.load([i_t * BT + 16, 0]).to(tl.float32)
+ 
+     b_Ai_21 = -tl.dot(
+         tl.dot(b_Ai_22, b_A_21, input_precision=DOT_PRECISION),
+@@ -188,41 +153,15 @@ def merge_16x16_to_32x32_inverse_kernel(
+         input_precision=DOT_PRECISION,
+     )
+ 
+-    if not USE_TMA:
+-        p_Ai_11 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT, 0), (16, 16), (1, 0)
+-        )
+-        p_Ai_21 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 16, 0), (16, 16), (1, 0)
+-        )
+-        p_Ai_22 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 16, 16), (16, 16), (1, 0)
+-        )
+-        tl.store(
+-            p_Ai_11,
+-            b_Ai_11.to(p_Ai_11.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_22,
+-            b_Ai_22.to(p_Ai_22.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_21,
+-            b_Ai_21.to(p_Ai_21.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-    else:
+-        desc_o.store(
+-            [i_t * BT + 0, 0], b_Ai_11.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 16, 0], b_Ai_21.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 16, 16], b_Ai_22.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
++    desc_o.store(
++        [i_t * BT + 0, 0], b_Ai_11.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 16, 0], b_Ai_21.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 16, 16], b_Ai_22.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
+ 
+ 
+ @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
+@@ -243,7 +182,6 @@ def merge_16x16_to_64x64_inverse_kernel(
+     T,
+     H: tl.constexpr,
+     BT: tl.constexpr,
+-    USE_TMA: tl.constexpr,
+     IS_VARLEN: tl.constexpr,
+     DOT_PRECISION: tl.constexpr,
+ ):
+@@ -268,30 +206,12 @@ def merge_16x16_to_64x64_inverse_kernel(
+     A += (bos * H + i_h) * BT
+     Ai += (bos * H + i_h) * BT
+ 
+-    if not USE_TMA:
+-        p_A_11 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT, 0), (16, 16), (1, 0)
+-        )
+-        p_A_22 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 16, 16), (16, 16), (1, 0)
+-        )
+-        p_A_33 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 32, 32), (16, 16), (1, 0)
+-        )
+-        p_A_44 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 48, 48), (16, 16), (1, 0)
+-        )
+-        b_Ai_11 = tl.load(p_A_11, boundary_check=(0, 1)).to(tl.float32)
+-        b_Ai_22 = tl.load(p_A_22, boundary_check=(0, 1)).to(tl.float32)
+-        b_Ai_33 = tl.load(p_A_33, boundary_check=(0, 1)).to(tl.float32)
+-        b_Ai_44 = tl.load(p_A_44, boundary_check=(0, 1)).to(tl.float32)
+-    else:
+-        desc = make_tensor_descriptor(A, [T, BT], [H * BT, 1], [16, 16])
+-        desc_o = make_tensor_descriptor(Ai, [T, BT], [H * BT, 1], [16, 16])
+-        b_Ai_11 = desc.load([i_t * BT + 0, 0]).to(tl.float32)
+-        b_Ai_22 = desc.load([i_t * BT + 16, 16]).to(tl.float32)
+-        b_Ai_33 = desc.load([i_t * BT + 32, 32]).to(tl.float32)
+-        b_Ai_44 = desc.load([i_t * BT + 48, 48]).to(tl.float32)
++    desc = make_tensor_descriptor(A, [T, BT], [H * BT, 1], [16, 16])
++    desc_o = make_tensor_descriptor(Ai, [T, BT], [H * BT, 1], [16, 16])
++    b_Ai_11 = desc.load([i_t * BT + 0, 0]).to(tl.float32)
++    b_Ai_22 = desc.load([i_t * BT + 16, 16]).to(tl.float32)
++    b_Ai_33 = desc.load([i_t * BT + 32, 32]).to(tl.float32)
++    b_Ai_44 = desc.load([i_t * BT + 48, 48]).to(tl.float32)
+ 
+     # [16, 16]
+     b_Ai_11 = -tl.where(m_A, b_Ai_11, 0)
+@@ -320,38 +240,12 @@ def merge_16x16_to_64x64_inverse_kernel(
+     b_Ai_33 += m_I
+     b_Ai_44 += m_I
+ 
+-    if not USE_TMA:
+-        p_A_21 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 16, 0), (16, 16), (1, 0)
+-        )
+-        p_A_31 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 32, 0), (16, 16), (1, 0)
+-        )
+-        p_A_32 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 32, 16), (16, 16), (1, 0)
+-        )
+-        p_A_41 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 48, 0), (16, 16), (1, 0)
+-        )
+-        p_A_42 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 48, 16), (16, 16), (1, 0)
+-        )
+-        p_A_43 = tl.make_block_ptr(
+-            A, (T, BT), (H * BT, 1), (i_t * BT + 48, 32), (16, 16), (1, 0)
+-        )
+-        b_A_21 = tl.load(p_A_21, boundary_check=(0, 1)).to(tl.float32)
+-        b_A_31 = tl.load(p_A_31, boundary_check=(0, 1)).to(tl.float32)
+-        b_A_32 = tl.load(p_A_32, boundary_check=(0, 1)).to(tl.float32)
+-        b_A_41 = tl.load(p_A_41, boundary_check=(0, 1)).to(tl.float32)
+-        b_A_42 = tl.load(p_A_42, boundary_check=(0, 1)).to(tl.float32)
+-        b_A_43 = tl.load(p_A_43, boundary_check=(0, 1)).to(tl.float32)
+-    else:
+-        b_A_21 = desc.load([i_t * BT + 16, 0]).to(tl.float32)
+-        b_A_31 = desc.load([i_t * BT + 32, 0]).to(tl.float32)
+-        b_A_32 = desc.load([i_t * BT + 32, 16]).to(tl.float32)
+-        b_A_41 = desc.load([i_t * BT + 48, 0]).to(tl.float32)
+-        b_A_42 = desc.load([i_t * BT + 48, 16]).to(tl.float32)
+-        b_A_43 = desc.load([i_t * BT + 48, 32]).to(tl.float32)
++    b_A_21 = desc.load([i_t * BT + 16, 0]).to(tl.float32)
++    b_A_31 = desc.load([i_t * BT + 32, 0]).to(tl.float32)
++    b_A_32 = desc.load([i_t * BT + 32, 16]).to(tl.float32)
++    b_A_41 = desc.load([i_t * BT + 48, 0]).to(tl.float32)
++    b_A_42 = desc.load([i_t * BT + 48, 16]).to(tl.float32)
++    b_A_43 = desc.load([i_t * BT + 48, 32]).to(tl.float32)
+ 
+     b_Ai_21 = -tl.dot(
+         tl.dot(b_Ai_22, b_A_21, input_precision=DOT_PRECISION),
+@@ -389,118 +283,36 @@ def merge_16x16_to_64x64_inverse_kernel(
+         input_precision=DOT_PRECISION,
+     )
+ 
+-    if not USE_TMA:
+-        p_Ai_11 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT, 0), (16, 16), (1, 0)
+-        )
+-        p_Ai_22 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 16, 16), (16, 16), (1, 0)
+-        )
+-        p_Ai_33 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 32, 32), (16, 16), (1, 0)
+-        )
+-        p_Ai_44 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 48, 48), (16, 16), (1, 0)
+-        )
+-        p_Ai_21 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 16, 0), (16, 16), (1, 0)
+-        )
+-        p_Ai_31 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 32, 0), (16, 16), (1, 0)
+-        )
+-        p_Ai_32 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 32, 16), (16, 16), (1, 0)
+-        )
+-        p_Ai_41 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 48, 0), (16, 16), (1, 0)
+-        )
+-        p_Ai_42 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 48, 16), (16, 16), (1, 0)
+-        )
+-        p_Ai_43 = tl.make_block_ptr(
+-            Ai, (T, BT), (H * BT, 1), (i_t * BT + 48, 32), (16, 16), (1, 0)
+-        )
+-        tl.store(
+-            p_Ai_11,
+-            b_Ai_11.to(p_Ai_11.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_22,
+-            b_Ai_22.to(p_Ai_22.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_33,
+-            b_Ai_33.to(p_Ai_33.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_44,
+-            b_Ai_44.to(p_Ai_44.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_21,
+-            b_Ai_21.to(p_Ai_21.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_31,
+-            b_Ai_31.to(p_Ai_31.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_32,
+-            b_Ai_32.to(p_Ai_32.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_41,
+-            b_Ai_41.to(p_Ai_41.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_42,
+-            b_Ai_42.to(p_Ai_42.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-        tl.store(
+-            p_Ai_43,
+-            b_Ai_43.to(p_Ai_43.dtype.element_ty, fp_downcast_rounding="rtne"),
+-            boundary_check=(0, 1),
+-        )
+-    else:
+-        desc_o.store(
+-            [i_t * BT + 0, 0], b_Ai_11.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 16, 16], b_Ai_22.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 32, 32], b_Ai_33.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 48, 48], b_Ai_44.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 16, 0], b_Ai_21.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 32, 0], b_Ai_31.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 32, 16], b_Ai_32.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 48, 0], b_Ai_41.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 48, 16], b_Ai_42.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
+-        desc_o.store(
+-            [i_t * BT + 48, 32], b_Ai_43.to(desc_o.dtype, fp_downcast_rounding="rtne")
+-        )
++    desc_o.store(
++        [i_t * BT + 0, 0], b_Ai_11.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 16, 16], b_Ai_22.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 32, 32], b_Ai_33.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 48, 48], b_Ai_44.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 16, 0], b_Ai_21.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 32, 0], b_Ai_31.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 32, 16], b_Ai_32.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 48, 0], b_Ai_41.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 48, 16], b_Ai_42.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
++    desc_o.store(
++        [i_t * BT + 48, 32], b_Ai_43.to(desc_o.dtype, fp_downcast_rounding="rtne")
++    )
+ 
+ 
+ @input_guard
+@@ -552,7 +364,6 @@ def solve_tril(
+         T=T,
+         H=H,
+         BT=BT,
+-        USE_TMA=is_tma_supported,
+         DOT_PRECISION=FLA_TRIL_PRECISION,
+     )
+     return Ai
+diff --git a/vllm/third_party/flash_linear_attention/ops/utils.py b/vllm/third_party/flash_linear_attention/ops/utils.py
+index d8e7db934984..da9316c6c0c4 100644
+--- a/vllm/third_party/flash_linear_attention/ops/utils.py
++++ b/vllm/third_party/flash_linear_attention/ops/utils.py
+@@ -154,14 +154,12 @@ def _check_platform() -> Literal["nvidia", "amd", "intel", "musa"]:
+ )
+ use_cuda_graph = is_nvidia and os.environ.get("FLA_USE_CUDA_GRAPH", "0") == "1"
+ is_gather_supported = hasattr(triton.language, "gather")
+-is_tma_supported = (
+-    is_nvidia_hopper
+-    and os.getenv("FLA_USE_TMA", "0") == "1"
+-    and (
+-        hasattr(triton.language, "_experimental_make_tensor_descriptor")
+-        or hasattr(triton.language, "make_tensor_descriptor")
+-    )
+-)
++
++if is_nvidia_hopper:
++    def _fla_triton_alloc(size: int, alignment: int, stream: int | None):
++        return torch.empty(size, device=device, dtype=torch.int8)
++
++    triton.set_allocator(_fla_triton_alloc)
+ 
+ 
+ def get_all_max_shared_mem():
+diff --git a/vllm/third_party/flash_linear_attention/ops/wy_fast.py b/vllm/third_party/flash_linear_attention/ops/wy_fast.py
+index 52d2b28195a8..8e1f7aed2353 100644
+--- a/vllm/third_party/flash_linear_attention/ops/wy_fast.py
++++ b/vllm/third_party/flash_linear_attention/ops/wy_fast.py
+@@ -14,6 +14,7 @@
+ from vllm.triton_utils import tl, triton
+ 
+ from .index import prepare_chunk_indices
++from .op import make_tensor_descriptor
+ 
+ 
+ @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
+@@ -60,60 +61,38 @@ def recompute_w_u_fwd_kernel(
+         T = eos - bos
+     else:
+         bos, eos = i_b * T, i_b * T + T
+-    p_beta = tl.make_block_ptr(
+-        beta + bos * H + i_h, (T,), (H,), (i_t * BT,), (BT,), (0,)
++    o_t = i_t * BT + tl.arange(0, BT)
++    m_t = o_t < T
++    desc_A = make_tensor_descriptor(
++        A + (bos * H + i_h) * BT, [T, BT], [H * BT, 1], [BT, BT]
+     )
+-    p_g = tl.make_block_ptr(g + (bos * H + i_h), (T,), (H,), (i_t * BT,), (BT,), (0,))
+-    p_A = tl.make_block_ptr(
+-        A + (bos * H + i_h) * BT, (T, BT), (H * BT, 1), (i_t * BT, 0), (BT, BT), (1, 0)
++    desc_v = make_tensor_descriptor(
++        v + (bos * H + i_h) * V, [T, V], [H * V, 1], [BT, BV]
+     )
+-    b_beta = tl.load(p_beta, boundary_check=(0,))
+-    b_A = tl.load(p_A, boundary_check=(0, 1))
+-    b_g = tl.exp(tl.load(p_g, boundary_check=(0,)))
++    desc_u = make_tensor_descriptor(
++        u + (bos * H + i_h) * V, [T, V], [H * V, 1], [BT, BV]
++    )
++    desc_k = make_tensor_descriptor(
++        k + (bos * Hg + i_h // (H // Hg)) * K, [T, K], [Hg * K, 1], [BT, BK]
++    )
++    desc_w = make_tensor_descriptor(
++        w + (bos * H + i_h) * K, [T, K], [H * K, 1], [BT, BK]
++    )
++    b_beta = tl.load(beta + (bos + o_t) * H + i_h, mask=m_t, other=0.0)
++    b_A = desc_A.load([i_t * BT, 0])
++    b_g = tl.exp(tl.load(g + (bos + o_t) * H + i_h, mask=m_t, other=0.0))
+ 
+     for i_v in range(tl.cdiv(V, BV)):
+-        p_v = tl.make_block_ptr(
+-            v + (bos * H + i_h) * V,
+-            (T, V),
+-            (H * V, 1),
+-            (i_t * BT, i_v * BV),
+-            (BT, BV),
+-            (1, 0),
+-        )
+-        p_u = tl.make_block_ptr(
+-            u + (bos * H + i_h) * V,
+-            (T, V),
+-            (H * V, 1),
+-            (i_t * BT, i_v * BV),
+-            (BT, BV),
+-            (1, 0),
+-        )
+-        b_v = tl.load(p_v, boundary_check=(0, 1))
++        b_v = desc_v.load([i_t * BT, i_v * BV])
+         b_vb = (b_v * b_beta[:, None]).to(b_v.dtype)
+         b_u = tl.dot(b_A, b_vb, allow_tf32=False)
+-        tl.store(p_u, b_u.to(p_u.dtype.element_ty), boundary_check=(0, 1))
++        desc_u.store([i_t * BT, i_v * BV], b_u.to(desc_u.dtype))
+ 
+     for i_k in range(tl.cdiv(K, BK)):
+-        p_k = tl.make_block_ptr(
+-            k + (bos * Hg + i_h // (H // Hg)) * K,
+-            (T, K),
+-            (Hg * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
+-        )
+-        p_w = tl.make_block_ptr(
+-            w + (bos * H + i_h) * K,
+-            (T, K),
+-            (H * K, 1),
+-            (i_t * BT, i_k * BK),
+-            (BT, BK),
+-            (1, 0),
+-        )
+-        b_k = tl.load(p_k, boundary_check=(0, 1))
++        b_k = desc_k.load([i_t * BT, i_k * BK])
+         b_kb = (b_k * b_beta[:, None] * b_g[:, None]).to(b_k.dtype)
+         b_w = tl.dot(b_A, b_kb)
+-        tl.store(p_w, b_w.to(p_w.dtype.element_ty), boundary_check=(0, 1))
++        desc_w.store([i_t * BT, i_k * BK], b_w.to(desc_w.dtype))
+ 
+ 
+ def recompute_w_u_fwd(

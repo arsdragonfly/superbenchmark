@@ -1,0 +1,30 @@
+diff --git a/vllm/model_executor/layers/fused_moe/oracle/unquantized.py b/vllm/model_executor/layers/fused_moe/oracle/unquantized.py
+--- a/vllm/model_executor/layers/fused_moe/oracle/unquantized.py
++++ b/vllm/model_executor/layers/fused_moe/oracle/unquantized.py
+@@ -317,10 +317,14 @@ def _return_or_raise(
+ 
+     # Handle explicit AITER FP8 configuration.
+     if envs.is_set("VLLM_ROCM_USE_AITER") or envs.is_set("VLLM_ROCM_USE_AITER_MOE"):
++        from vllm.platforms.rocm import on_gfx1250
++
+         skip_aiter_moe = (
+             not envs.VLLM_ROCM_USE_AITER
+             or not envs.VLLM_ROCM_USE_AITER_MOE
+             or rocm_aiter_ops.is_rdna_aiter_enabled()
++            # aiter has no unquantized (bf16/fp16) MoE kernel on gfx1250; use triton
++            or (current_platform.is_rocm() and on_gfx1250())
+         )
+         if skip_aiter_moe:
+             if UnquantizedMoeBackend.AITER in AVAILABLE_BACKENDS:
+diff --git a/vllm/model_executor/layers/utils.py b/vllm/model_executor/layers/utils.py
+--- a/vllm/model_executor/layers/utils.py
++++ b/vllm/model_executor/layers/utils.py
+@@ -328,7 +328,7 @@
+     # K % 256 == 0 (it walks K with fixed-size descriptors and won't pad a
+     # partial last tile). Some whitelisted shapes have K=2880 (e.g. gpt-oss-120b
+     # hidden), so skip aiter there and fall back to the torch GEMM path below.
+-    if use_aiter_triton_gemm(n, m, k, x.dtype) and not (on_gfx1250() and k % 256 != 0):
++    if x.dim() == 2 and use_aiter_triton_gemm(n, m, k, x.dtype) and not (on_gfx1250() and k % 256 != 0):
+         from aiter.ops.triton.gemm_a16w16 import gemm_a16w16
+ 
+         return gemm_a16w16(x, weight, bias)

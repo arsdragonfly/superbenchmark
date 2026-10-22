@@ -41,6 +41,8 @@ class Rocm102SmokeRunnerTest(unittest.TestCase):
         self.assertIn('--rdzv_backend=static', command)
         self.assertNotIn('--standalone', command)
         self.assertIn('HIP_VISIBLE_DEVICES=0,1,2,3', command)
+        self.assertIn('TRITON_HIP_USE_ASYNC_COPY=0', command)
+        self.assertIn('TRITON_HIP_USE_EXPERT_SCHEDULING=0', command)
         self.assertIn('/opt/superbench/dockerfile/rocm10.2-nightly/exec_rocblas.py', command)
 
     def test_local_gpu_processes_are_independent(self):

@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import sysconfig
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -128,6 +129,72 @@ def check_framework(role):
         importlib.import_module(module)
 
 
+def check_a0_library(site):
+    """Require a coherent source-matched master and all generated device assets in both views."""
+    manifest = json.loads((ROOT / 'a0/a0-library-manifest.json').read_text())
+    expected = json.loads((ROOT / 'expected-manifest.json').read_text())['submodules']['rocm-libraries']
+    if manifest['source_revision'] != expected or manifest['architecture_alias'] != 'gfx1250v0':
+        raise RuntimeError('A0 library does not match the installed SDK source')
+    if len(manifest['sha256']) != 271 or manifest['code_objects'] != 135:
+        raise RuntimeError('A0 library inventory differs from the tested generic profile')
+    if manifest['master'] not in manifest['sha256']:
+        raise RuntimeError('Missing A0 master selection table')
+    for view in ('_rocm_sdk_libraries', '_rocm_sdk_devel'):
+        base = site / view / 'lib/hipblaslt/library/gfx1250v0'
+        for name, digest in manifest['sha256'].items():
+            if hashlib.sha256((base / name).read_bytes()).hexdigest() != digest:
+                raise RuntimeError(f'A0 library asset changed: {view}/{name}')
+    run('sha256sum', '--check', str(ROOT / 'hipblaslt-host.sha256'))
+
+
+def check_runtime_repairs(role):
+    """Check source-matched A0 assets, CK runtime sources and actual installed patches."""
+    site = Path(sysconfig.get_path('purelib'))
+    check_a0_library(site)
+    if (ROOT / 'aiter-ck-source.txt').read_text().strip() != '96afae1d54fc79c26857de7e1683b0dde1ff3c6f':
+        raise RuntimeError('Unexpected AITER CK source')
+    check_ck_sources(site)
+    if role == 'vllm':
+        hashes = json.loads((ROOT / 'amd-vllm/installed.json').read_text())
+        if len(hashes) != 12:
+            raise RuntimeError('Missing AMD vLLM patches')
+        for path, digest in hashes.items():
+            if hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest:
+                raise RuntimeError(f'Patched vLLM module changed: {path}')
+    return {'a0_files_per_view': 271, 'a0_code_objects': 135, 'ck_runtime_assets': 'PASS',
+            'amd_vllm_patched_modules': 12 if role == 'vllm' else 0}
+
+
+def check_ck_sources(site):
+    """Require the packaged headers/generator to match the pinned checkout."""
+    checkout = Path('/opt/aiter/3rdparty/composable_kernel')
+    installed = site / 'aiter_meta/3rdparty/composable_kernel'
+    for relative in ('include/ck_tile/core.hpp', 'example/ck_tile/01_fmha/generate.py'):
+        original = (checkout / relative).read_bytes()
+        if not original or (installed / relative).read_bytes() != original:
+            raise RuntimeError(f'Missing or inconsistent CK runtime source: {relative}')
+    includes = os.environ.get('CPATH', '').split(':')
+    if any(str(checkout / subdir) not in includes for subdir in ('include', 'library/include')):
+        raise RuntimeError('CK header lookup is not configured for runtime JIT')
+    for flag in ('TRITON_HIP_USE_EXPERT_SCHEDULING', 'TRITON_HIP_USE_ASYNC_COPY'):
+        if os.environ.get(flag) != '0':
+            raise RuntimeError(f'Required A0 compiler workaround is not enabled: {flag}')
+
+
+def check_launch_profiles(role):
+    """Exercise the installed launcher without importing GPU-dependent serving CLIs."""
+    profiles = ('vllm-triton',) if role == 'vllm' else ('sglang-qwen397', 'sglang-compile')
+    for profile in profiles:
+        result = subprocess.check_output(
+            ['/usr/local/bin/sb-serve', '--dry-run', profile, '--help'], text=True)
+        plan = json.loads(result)
+        if plan['profile'] != profile or '--attention-backend' not in plan['command']:
+            raise RuntimeError(f'Invalid installed serving profile: {profile}')
+        if plan['environment']['TRITON_HIP_USE_EXPERT_SCHEDULING'] != '0':
+            raise RuntimeError('Launcher did not apply the expert-scheduling workaround')
+    return list(profiles)
+
+
 def main():
     """Save an explicit CPU-only report after all required checks pass."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -140,6 +207,7 @@ def main():
     check_clang(sdk)
     translator = check_hiprtc_and_translator(sdk)
     check_framework(role)
+    repairs = check_runtime_repairs(role) if role != 'sdk' else None
     if role != 'sdk':
         run('sha256sum', '--check', str(ROOT / 'fixed-triton-installed.sha256'))
         run(sys.executable, str(ROOT / 'triton_unsigned_offset.py'), '--expect-fixed')
@@ -148,7 +216,12 @@ def main():
             version(name)
         run('sha256sum', '--check', str(ROOT / 'fixed-flydsl-installed.sha256'))
         run(sys.executable, str(ROOT / 'flydsl_unsigned_offset.py'))
+        profiles = check_launch_profiles(role)
+    else:
+        profiles = []
     report = {'result': 'PASS', 'role': role, 'packages': packages, 'translator': translator,
+              'runtime_repairs': repairs,
+              'launch_profiles': profiles,
               'cpu_framework_imports': list(cpu_imports(role)),
               'device_dependent_imports': 'NOT_TESTED: AITER and Apex-with-AITER need GPU discovery',
               'gpu_inference': 'NOT_TESTED: CPU build and code-generation checks only'}

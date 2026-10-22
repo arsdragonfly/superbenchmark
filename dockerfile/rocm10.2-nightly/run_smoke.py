@@ -107,7 +107,7 @@ def commands(image, config, case, name, entry, groups, seconds):
             'HIP_VISIBLE_DEVICES': visible, 'HSA_HOTSWAP_ENABLE': '1', 'HSA_TOOLS_LIB': '',
             'HSA_DISABLE_COREDUMP_ON_EXCEPTION': '1', 'OMP_NUM_THREADS': '4', 'MKL_NUM_THREADS': '4',
             'NCCL_SOCKET_IFNAME': 'lo', 'NCCL_CUMEM_ENABLE': '0', 'NCCL_NVLS_ENABLE': '0',
-            'TRITON_HIP_USE_ASYNC_COPY': '0', 'PYTHONUNBUFFERED': '1',
+            'TRITON_HIP_USE_ASYNC_COPY': '0', 'TRITON_HIP_USE_EXPERT_SCHEDULING': '0', 'PYTHONUNBUFFERED': '1',
             'ROCBLAS_USE_HIPBLASLT': '0', 'TORCH_BLAS_PREFER_HIPBLASLT': '0',
         }
         if not distributed:
