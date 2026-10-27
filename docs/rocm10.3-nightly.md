@@ -5,6 +5,37 @@ digests. It builds new **experimental, CPU-validated** base, SuperBench, vLLM an
 SGLang images. Earlier GPU qualification does not automatically transfer to
 these rebuilt images.
 
+## Published images: October 27, 2026
+
+All four were built on `hbv3-build`, CPU-validated, pushed to
+`mi455xacr.azurecr.io`, and pulled back by digest to verify identity.
+The common tag is `10.3.0a20261026-mi455x-a0-experimental`.
+The previous qualified tags were not overwritten.
+
+| Image repository | Immutable digest |
+|---|---|
+| `rocm-pytorch-base` | `sha256:c58c92d66616c1ced4999964a809504c6ff5c69df06bcc9cc9bc2a3d72ba86a0` |
+| `superbench-rocm-pytorch` | `sha256:a7638a75932c9d8b3771fba355a73193736e03df99c42433ca4617d15ff40673` |
+| `superbench-vllm` | `sha256:3ae8846dc34c3936ebf9f8ef6ff06d6a99c521e1bbb2f1ed2f54f5015342ded8` |
+| `superbench-sglang` | `sha256:ed5ce2c32d20b86689cb84c29e08a91db6cfa969aa4a0475735396cfddd4c35e` |
+
+For example:
+
+```bash
+docker pull mi455xacr.azurecr.io/superbench-rocm-pytorch:10.3.0a20261026-mi455x-a0-experimental
+```
+
+The image source is `32a127a7b0f012580095830ac81323b2adceb6d7` for the base
+and serving images, and `f2e35e22c474c096a1749bb0fc2e46a6b2f89820` for
+SuperBench. The latter adds the missing SCM build plugin and an early AITER
+version assertion; it does not change the framework/SDK source pins.
+Both revisions are on
+`experiments/mi455x-rocm10.2-nightly-smoke-20261018` (the existing branch name
+is retained despite the SDK moving to 10.3).
+
+**GPU qualification: NOT RUN for all four new images.** The October 18/20
+hardware results apply to the older images, not these digests.
+
 ## What the newer nightly incorporates
 
 The selected complete set is `10.3.0a20261026`, with PyTorch
@@ -74,7 +105,12 @@ python3 dockerfile/rocm10.3-nightly/build.py \
 The complete [build plan](../dockerfile/rocm10.3-nightly/build.py) creates all
 compiler prerequisites by default. The two existing application Dockerfiles
 are parameterized to accept refreshed base/constraints while retaining their
-historical defaults. The full overlay retains DOCA/OpenMPI userspace,
+historical defaults. The new
+[SDK](../dockerfile/rocm10.3-nightly/sdk.dockerfile) and
+[base](../dockerfile/rocm10.3-nightly/base.dockerfile) recipes feed the shared
+[full overlay](../dockerfile/rocm10.2-nightly.dockerfile); its older filename
+does not select the SDK when the refresh driver supplies the new arguments.
+The full overlay retains DOCA/OpenMPI userspace,
 RVS/TransferBench, native clients, TE with fused attention disabled, AITER,
 Megatron and repaired FlyDSL.
 
@@ -108,3 +144,56 @@ qualification. Do not interpret a successful CPU image build as a new
 54-case SuperBench GPU pass or resolution of MODE2/fabric/graph-capture bugs.
 
 No host driver, firmware or kernel changes are part of these recipes.
+
+### Recorded CPU results
+
+| Check | Result |
+|---|---|
+| SDK source/package pins and `python3 -m pip check`, all four images | PASS |
+| Vendor A0 assets, both SDK layouts | PASS: 568 hipBLASLt/hipSPARSELt files |
+| Packaged RCCL translation cache | PASS: 114 objects, 395 Wave32 descriptors |
+| SDK LLVM, both instruction selectors | PASS |
+| Rebuilt Triton unsigned load, byte load, store and atomic code generation | PASS |
+| HIPRTC unsigned-address code generation | PASS |
+| Patched FlyDSL MLIR/ROCDL code generation, all three application images | PASS |
+| TE CPU import, pinned AITER/Megatron metadata, full-overlay CK JIT assets | PASS |
+| Serving imports, 12 patched vLLM module hashes and explicit launch profiles | PASS |
+| Focused unit tests, local checkout and final SuperBench image | 44 PASS |
+| Refresh Python helpers/tests, flake8 | PASS |
+
+The per-role compiler/package checks can be repeated without GPUs:
+
+```bash
+docker run --rm --network=none sb-rocm103-base:20261026-py314 \
+  python3 /opt/base-provenance/check_base.py --role base
+docker run --rm --network=none sb-rocm103-superbench:20261026 \
+  python3 /opt/base-provenance/check_base.py --role superbench
+docker run --rm --network=none sb-rocm103-vllm:20261026 \
+  python3 /opt/base-provenance/check_base.py --role vllm
+docker run --rm --network=none sb-rocm103-sglang:20261026 \
+  python3 /opt/base-provenance/check_base.py --role sglang
+```
+
+All four commands passed on the builder. Substitute the corresponding ACR
+image reference to check a pulled image. Successful builds retain their
+provenance under `/opt/base-provenance`; rerunning the validator in a
+disposable container prints a fresh report.
+
+The focused source tests and lint commands passed:
+
+```bash
+python3 -B -m unittest -q tests.test_rocm103_nightly tests.test_rocm102_serving \
+  tests.test_rocm102_dockerfiles tests.test_rocm102_smoke_runner
+flake8 dockerfile/rocm10.3-nightly/*.py tests/test_rocm103_nightly.py
+```
+
+To repeat all 44 tests inside the built SuperBench image, mount the
+source-only `.dockerignore` test fixture (Docker does not copy that file):
+
+```bash
+docker run --rm --network=none \
+  --mount "type=bind,src=$(pwd)/.dockerignore,dst=/opt/superbench/.dockerignore,readonly" \
+  sb-rocm103-superbench:20261026 \
+  python3 -B -m unittest -q tests.test_rocm103_nightly tests.test_rocm102_serving \
+  tests.test_rocm102_dockerfiles tests.test_rocm102_smoke_runner
+```

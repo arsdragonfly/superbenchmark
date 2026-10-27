@@ -1,5 +1,9 @@
 # Experimental MI455X A0: ROCm 10.2 nightly
 
+For the newer published base, SuperBench, vLLM and SGLang images, see the
+[October 26 ROCm 10.3 refresh](rocm10.3-nightly.md). That refresh has separate
+CPU validation and does not inherit the GPU qualification recorded below.
+
 This profile provides a reproducible ROCm/PyTorch foundation, a full SuperBench
 overlay, and a **54-case functional smoke test**. It is not a throughput,
 long-stress, fabric, or full-size-model qualification.
