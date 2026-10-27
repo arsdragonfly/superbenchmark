@@ -33,9 +33,10 @@ def inventory_assets(site):
     for library in ('hipblaslt', 'hipsparselt'):
         relative = Path(f'lib/{library}/library/gfx1250v0')
         source = site / '_rocm_sdk_libraries' / relative
-        master = source / 'TensileLibrary_lazy_gfx1250.dat.zlib'
-        if not master.is_file() or master.stat().st_size == 0:
-            raise RuntimeError(f'Missing vendor A0 master: {master}')
+        masters = (source / name for name in ('TensileLibrary_lazy_gfx1250.dat.zlib',
+                                              'TensileLiteLibrary_lazy_gfx1250_Mapping.dat.zlib'))
+        if any(not path.is_file() or path.stat().st_size == 0 for path in masters):
+            raise RuntimeError(f'Missing vendor A0 master or mapping: {source}')
         for path in sorted(source.iterdir()):
             if not path.is_file():
                 continue
@@ -99,6 +100,15 @@ def check_vllm_patches():
             raise RuntimeError(f'Patched module changed: {name}')
 
 
+def check_superbench():
+    """Run the independent MLIR pipeline after the complete framework installation."""
+    if version('amd-aiter') != '0.1.26.dev0+g2cb3d1758':
+        raise RuntimeError('Unexpected AITER build')
+    importlib.import_module('transformer_engine.pytorch')
+    run('sha256sum', '--check', str(ROOT / 'fixed-flydsl-installed.sha256'))
+    run(sys.executable, str(Path(os.environ['SB_HOME']) / 'dockerfile/rocm10.2-serving/flydsl_unsigned_offset.py'))
+
+
 def check_pins(sdk):
     """Compare actual SDK and Python versions to the frozen input manifest."""
     manifest = json.loads((sdk / 'share/therock/therock_manifest.json').read_text())
@@ -122,7 +132,7 @@ def main():
     """Save CPU-only validation evidence without pretending to qualify GPU inference."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--record-assets', action='store_true')
-    parser.add_argument('--role', choices=('base', 'vllm', 'sglang'), default='base')
+    parser.add_argument('--role', choices=('base', 'superbench', 'vllm', 'sglang'), default='base')
     args = parser.parse_args()
     sdk = Path(os.environ['ROCM_PATH'])
     expected = check_pins(sdk)
@@ -150,8 +160,10 @@ def main():
     if torchvision.ops.nms(torch.tensor([[0., 0., 1., 1.], [0., 0., 1., 1.]]),
                            torch.tensor([0.9, 0.8]), 0.5).tolist() != [0]:
         raise RuntimeError('Native NMS check failed')
-    if args.role != 'base':
+    if args.role in ('vllm', 'sglang'):
         check_serving(args.role)
+    elif args.role == 'superbench':
+        check_superbench()
     run(sys.executable, '-m', 'pip', 'check')
     report = {'result': 'PASS', 'role': args.role, 'vendor_a0_files': len(assets),
               'cache': cache, 'gpu_validation': 'NOT_RUN', 'sources': expected}

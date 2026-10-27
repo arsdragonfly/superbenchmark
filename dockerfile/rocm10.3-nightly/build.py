@@ -54,7 +54,8 @@ def plan(args):
                 'TORCH_DEVICE_EXTRAS=device-gfx1250']
         yield build(f'{RECIPES}/sdk.dockerfile', sdk, sdk_args)
         yield build(f'{RECIPES}/base.dockerfile', base,
-                    (f'SDK_IMAGE={sdk}', f'LLVM_IMAGE={llvm}', f'BUILD_JOBS={args.jobs}'))
+                    (f'SDK_IMAGE={sdk}', f'LLVM_IMAGE={llvm}', f'BUILD_JOBS={args.jobs}',
+                     f'SB_SOURCE_REVISION={args.source_revision}'))
         if py == '314' and 'superbench' not in args.images:
             continue
         flydsl = getattr(args, f'flydsl{py}_image') or f'sb-rocm103-flydsl:20261026-py{py}'
@@ -71,6 +72,8 @@ def plan(args):
                 f'AITER_COMMIT={AITER}', 'AITER_PACKAGE_VERSION=0.1.26.dev0+g2cb3d1758',
                 'FLYDSL_COMMIT=1f3511677662afc58bcf141dec812ccf05334fd8',
                 f'NUM_MAKE_JOBS={args.jobs}', 'AMDGPU_TARGETS=gfx1250'))
+            yield ['docker', 'run', '--rm', '--network=none', OUTPUTS['superbench'],
+                   'python3', '/opt/base-provenance/check_base.py', '--role', 'superbench']
         else:
             yield from serving_plan(args, base, flydsl)
 

@@ -312,7 +312,7 @@ RUN python3 -m pip install --no-deps /opt/fixed-flydsl-wheels/*.whl && \
 ARG TE_COMMIT=e7835ed1b134f56e58c575fba2455471064cab9b
 ARG AITER_COMMIT=89a47b84ac4b576339a50047e290c383c2377389
 ARG MEGATRON_COMMIT=4b4acac9a1d28ea6829c8d4f566d75698a21249d
-ARG AITER_PACKAGE_VERSION=0.0.0
+ARG AITER_PACKAGE_VERSION=
 ENV SB_ROCM10_FRAMEWORK_ROOT=/opt/rocm10-frameworks \
     SB_MEGATRON_PATH=/opt/rocm10-frameworks/Megatron-LM \
     AITER_USE_SYSTEM_TRITON=1 \
@@ -331,8 +331,10 @@ RUN framework_jobs="${NUM_MAKE_JOBS}" && \
         NVTE_BUILD_MAX_JOBS="${framework_jobs}" PIP_CONSTRAINT=/tmp/rocm10-constraints.txt \
         TMPDIR=/tmp/rocm10-frameworks-scratch NVTE_USE_ROCM=1 NVTE_FRAMEWORK=pytorch \
         NVTE_ROCM_ARCH="${te_architectures}" NVTE_NO_LOCAL_VERSION=1 NVTE_CK_JIT=1 \
-        PREBUILD_KERNELS=0 BUILD_TARGET=rocm RCCL_HOME="${ROCM_PATH}" \
-        SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AMD_AITER="${AITER_PACKAGE_VERSION}" && \
+        PREBUILD_KERNELS=0 BUILD_TARGET=rocm RCCL_HOME="${ROCM_PATH}" && \
+    if [ -n "${AITER_PACKAGE_VERSION}" ]; then \
+        export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AMD_AITER="${AITER_PACKAGE_VERSION}"; \
+    fi && \
     python3 -c 'import sys;from importlib.metadata import version;expected={"torch":sys.argv[1],"triton":sys.argv[2],"rocm-sdk-core":sys.argv[3],"rocm-sdk-devel":sys.argv[3]};assert all(version(n)==v for n,v in expected.items()),expected' "${TORCH_VERSION}" "${TRITON_VERSION}" "${ROCM_VERSION}" && \
     mkdir -p "${TMPDIR}" && \
     python3 -m pip install \
@@ -352,7 +354,9 @@ RUN framework_jobs="${NUM_MAKE_JOBS}" && \
     git -C "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" apply --check "${SB_HOME}/third_party/TransformerEngine/rocm_fp32_bgrad.patch" && \
     git -C "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" apply "${SB_HOME}/third_party/TransformerEngine/rocm_fp32_bgrad.patch" && \
     git -C "${SB_MEGATRON_PATH}" apply "${SB_HOME}/third_party/Megatron/megatron_core_0.19.2_rocm10.patch" && \
-    python3 -m pip install -r "${SB_ROCM10_FRAMEWORK_ROOT}/aiter/requirements.txt" && \
+    if [ -n "${AITER_PACKAGE_VERSION}" ]; then \
+        python3 -m pip install -r "${SB_ROCM10_FRAMEWORK_ROOT}/aiter/requirements.txt"; \
+    fi && \
     python3 -m pip wheel --no-build-isolation --no-deps -w /tmp/rocm10-wheels \
         "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" "${SB_ROCM10_FRAMEWORK_ROOT}/aiter" "${SB_MEGATRON_PATH}" && \
     python3 -m pip install --no-deps /tmp/rocm10-wheels/*.whl && \

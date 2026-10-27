@@ -113,8 +113,9 @@ class NightlyRefreshTest(unittest.TestCase):
                     path = site / view / f'lib/{library}/library/gfx1250v0'
                     path.mkdir(parents=True)
                     (path / 'TensileLibrary_lazy_gfx1250.dat.zlib').write_bytes(b'index')
+                    (path / 'TensileLiteLibrary_lazy_gfx1250_Mapping.dat.zlib').write_bytes(b'mapping')
                     (path / 'kernel.co').write_bytes(b'code')
-            self.assertEqual(len(validator.inventory_assets(site)), 4)
+            self.assertEqual(len(validator.inventory_assets(site)), 6)
             (site / '_rocm_sdk_devel/lib/hipblaslt/library/gfx1250v0/kernel.co').write_bytes(b'corrupt')
             with self.assertRaisesRegex(RuntimeError, 'Inconsistent vendor A0 asset'):
                 validator.inventory_assets(site)

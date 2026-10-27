@@ -40,7 +40,9 @@ RUN python3 -m pip install --force-reinstall --no-deps /opt/fixed-triton-wheels/
     cp -a "${ROCM_PATH}/share/rocjitsu/translations/." "${ROCM_PATH}/../_rocm_sdk_core/share/rocjitsu/translations/" && \
     python3 /opt/base-provenance/check_base.py --record-assets && python3 -m pip check
 ENV PIP_CONSTRAINT=/opt/base-provenance/core-constraints.txt
-LABEL com.superbench.rocm.version="10.3.0a20261026" \
+ARG SB_SOURCE_REVISION=unknown
+LABEL com.superbench.source.commit="${SB_SOURCE_REVISION}" \
+    com.superbench.rocm.version="10.3.0a20261026" \
     com.superbench.therock.commit="b6b24b2b8b40aeb6ddd1262283cc1c87442e4f50" \
     com.superbench.rocm-systems.commit="39fd0ea559a5970e42afd87c30f275744e00b8d1" \
     com.superbench.rocm-libraries.commit="565c4c748eaf0b1198bf5912198cc1bc531ecb18" \
