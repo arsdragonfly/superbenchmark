@@ -102,6 +102,13 @@ class NightlyRefreshTest(unittest.TestCase):
         self.assertIn('/usr/local/bin/sb-serve', (RECIPES / 'qualify.dockerfile').read_text())
         self.assertIn(builder.AITER, (RECIPES / 'common.dockerfile').read_text())
 
+    def test_overlay_builds_source_identified_aiter(self):
+        """No-isolation builds need the SCM plugin to honor their version override."""
+        overlay = (ROOT / 'dockerfile/rocm10.2-nightly.dockerfile').read_text()
+        self.assertIn('python3 -m pip install setuptools-scm==10.3.4', overlay)
+        self.assertIn('SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AMD_AITER="${AITER_PACKAGE_VERSION}"', overlay)
+        self.assertIn('assert version("amd-aiter")==sys.argv[1]', overlay)
+
     def test_vendor_inventory_requires_masters_in_both_views(self):
         """Code objects without an A0 selection table cannot pass packaging validation."""
         with tempfile.TemporaryDirectory() as directory:

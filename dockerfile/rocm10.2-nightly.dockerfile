@@ -355,11 +355,16 @@ RUN framework_jobs="${NUM_MAKE_JOBS}" && \
     git -C "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" apply "${SB_HOME}/third_party/TransformerEngine/rocm_fp32_bgrad.patch" && \
     git -C "${SB_MEGATRON_PATH}" apply "${SB_HOME}/third_party/Megatron/megatron_core_0.19.2_rocm10.patch" && \
     if [ -n "${AITER_PACKAGE_VERSION}" ]; then \
+        python3 -m pip install setuptools-scm==10.3.4 && \
         python3 -m pip install -r "${SB_ROCM10_FRAMEWORK_ROOT}/aiter/requirements.txt"; \
     fi && \
     python3 -m pip wheel --no-build-isolation --no-deps -w /tmp/rocm10-wheels \
         "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" "${SB_ROCM10_FRAMEWORK_ROOT}/aiter" "${SB_MEGATRON_PATH}" && \
     python3 -m pip install --no-deps /tmp/rocm10-wheels/*.whl && \
+    if [ -n "${AITER_PACKAGE_VERSION}" ]; then \
+        python3 -c 'import sys;from importlib.metadata import version;assert version("amd-aiter")==sys.argv[1]' \
+            "${AITER_PACKAGE_VERSION}"; \
+    fi && \
     python3 -m pip check && \
     sha256sum --check /opt/base-provenance/fixed-triton-library.sha256 && \
     python3 dockerfile/rocm10.2-nightly/verify_core.py && \

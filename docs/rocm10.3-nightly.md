@@ -30,12 +30,22 @@ The published gfx1250 wheel now includes the hipBLASLt and hipSPARSELt
 we no longer replace the vendor library with our old generic-only build.
 Both SDK views are verified and their vendor assets are fingerprinted.
 
-The source pins also include the RCCL asynchronous error-query ownership fix,
-TensileLite GSU/TDM synchronization fixes, CK TDM LDS-padding correction, and
-exact integer tile-division correction. AITER is updated separately: a newer
-SDK alone does not update the AITER package. Its pin includes the large-output
-GEMM store correction, grouped-MoE tail/bias fix, RMSNorm tail/reduction fixes,
-and subsequent fixes through October 26.
+Other included changes:
+
+| Component | Included fix |
+|---|---|
+| RCCL | [ROCm/rocm-systems#13590](https://github.com/ROCm/rocm-systems/pull/13590): asynchronous error-query ownership race |
+| TensileLite | [ROCm/rocm-libraries#13913](https://github.com/ROCm/rocm-libraries/pull/13913): GSU atomic scope and TDM synchronization |
+| CK | [ROCm/rocm-libraries#13808](https://github.com/ROCm/rocm-libraries/pull/13808): TDM LDS-padding correction |
+| TensileLite | [ROCm/rocm-libraries#13266](https://github.com/ROCm/rocm-libraries/pull/13266): exact integer tile division |
+| Triton | [ROCm/triton#979](https://github.com/ROCm/triton/pull/979): expert scheduling defaults off |
+| AITER | [ROCm/aiter#6629](https://github.com/ROCm/aiter/pull/6629): large-output GEMM store addressing |
+| AITER | [ROCm/aiter#6663](https://github.com/ROCm/aiter/pull/6663): grouped-MoE tail and bias addressing |
+| AITER | [ROCm/aiter#6348](https://github.com/ROCm/aiter/pull/6348): RMSNorm tail/reduction corrections |
+
+AITER is updated separately in the application images: a newer SDK alone
+does not update that package. Inclusion of a fix is not proof that a
+particular ADO reproducer now passes.
 
 The matched Triton now defaults expert scheduling off, but still uses its
 independent LLVM `5f07f818...`; the recipe rebuilds it with the unsigned-address
