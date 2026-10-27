@@ -6,7 +6,8 @@ ARG FLYDSL_COMMIT=1f3511677662afc58bcf141dec812ccf05334fd8
 ARG LLVM_COMMIT=e2a39f504fee836e4def9581bed817ecc327b9dc
 RUN apt-get update && apt-get install -y --no-install-recommends \
         lld patchelf libzstd-dev zlib1g-dev && apt-get clean && \
-    python3 -m pip install -c /opt/base-provenance/constraints-base.txt nanobind==2.12.0 pybind11 numpy && \
+    python3 -m pip install -c /opt/base-provenance/constraints-base.txt \
+        cmake==3.31.10 nanobind==2.12.0 pybind11 numpy && \
     git init /src/FlyDSL && \
     git -C /src/FlyDSL remote add origin https://github.com/ROCm/FlyDSL.git && \
     git -C /src/FlyDSL fetch --depth 1 origin "${FLYDSL_COMMIT}" && \
