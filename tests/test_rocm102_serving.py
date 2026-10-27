@@ -93,11 +93,14 @@ class ServingBuildTest(unittest.TestCase):
         """No build input lives only in a previous session or remote checkout."""
         for path in RECIPES.glob('*.dockerfile'):
             text = path.read_text().replace('\\\n', ' ')
+            defaults = dict(re.findall(r'^ARG (\w+)=(.+)$', text, re.M))
             for line in text.splitlines():
                 if line.startswith('COPY ') and '--from=' not in line:
                     for source in line.split()[1:-1]:
                         if source.startswith('--'):
                             continue
+                        if source.startswith('${'):
+                            source = defaults[source[2:-1]]
                         self.assertTrue((ROOT / source).is_file(), (path.name, source))
             self.assertNotIn('/home/hpcuser', text)
             self.assertNotIn('.copilot', text)

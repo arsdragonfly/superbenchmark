@@ -1,0 +1,9 @@
+rocm==10.3.0a20261026
+rocm-sdk-core==10.3.0a20261026
+rocm-sdk-devel==10.3.0a20261026
+rocm-sdk-libraries==10.3.0a20261026
+torch==2.13.0+rocm10.3.0a20261026
+torchvision==0.28.0+rocm10.3.0a20261026
+torchaudio==2.11.0.2+rocm10.3.0a20261026
+triton==3.8.0+gita3c5afb7.rocm10.3.0a20261026
+apex==1.13.0+rocm10.3.0a20261026

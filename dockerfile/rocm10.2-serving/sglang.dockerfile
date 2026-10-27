@@ -3,9 +3,10 @@ FROM ${BASE_IMAGE}
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ARG SGLANG_COMMIT=478b0b00627bfba44e273aaad6ebefd8decb72d8
 ARG BUILD_JOBS=24
+ARG CONSTRAINTS_FILE=dockerfile/rocm10.2-serving/constraints-sglang.txt
 ENV SGLANG_USE_AITER=1 \
     SGLANG_USE_AITER_UNIFIED_ATTN=1
-COPY dockerfile/rocm10.2-serving/constraints-sglang.txt /opt/base-provenance/constraints-app.txt
+COPY ${CONSTRAINTS_FILE} /opt/base-provenance/constraints-app.txt
 RUN git init /opt/sglang && \
     git -C /opt/sglang remote add origin https://github.com/sgl-project/sglang.git && \
     git -C /opt/sglang fetch --depth 1 origin "${SGLANG_COMMIT}" && \

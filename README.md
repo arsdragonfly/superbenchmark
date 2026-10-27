@@ -21,6 +21,10 @@ __SuperBench__ is a validation and profiling tool for AI infrastructure.
 
 ## Experimental ROCm 10.2 nightly
 
+The latest [October 26 ROCm 10.3 refresh](docs/rocm10.3-nightly.md) builds all
+four images with newer vendor A0 assets and AITER correctness fixes. Its
+CPU validation is separate from the earlier GPU-qualified release below.
+
 The [MI455X A0 nightly guide](docs/rocm10.2-nightly.md) contains the pinned
 ROCm/PyTorch base and full overlay recipes, host prerequisites, and a
 54-case minimum-iteration smoke profile.

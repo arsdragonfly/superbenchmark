@@ -3,10 +3,12 @@ FROM ${BASE_IMAGE}
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ARG VLLM_COMMIT=db9527a46873454610df6dbedf79a36d6bf1a7f6
 ARG BUILD_JOBS=24
+ARG CONSTRAINTS_FILE=dockerfile/rocm10.2-serving/constraints-vllm.txt
+ARG VLLM_VERSION=0.31.0+rocm10.2.0a20261015.llvmfix
 ENV VLLM_TARGET_DEVICE=rocm \
     VLLM_USE_PRECOMPILED=0 \
     VLLM_USE_PRECOMPILED_RUST=0
-COPY dockerfile/rocm10.2-serving/constraints-vllm.txt /opt/base-provenance/constraints-app.txt
+COPY ${CONSTRAINTS_FILE} /opt/base-provenance/constraints-app.txt
 RUN git init /opt/vllm && \
     git -C /opt/vllm remote add origin https://github.com/vllm-project/vllm.git && \
     git -C /opt/vllm fetch --depth 1 origin "${VLLM_COMMIT}" && \
@@ -28,7 +30,7 @@ RUN --mount=type=cache,id=sb-serving-vllm-db9527a-20261015,target=/opt/vllm/buil
     --mount=type=cache,id=sb-serving-vllm-db9527a-cargo,target=/opt/vllm/rust/target \
     CMAKE_PREFIX_PATH="${ROCM_PATH}" CXX="${ROCM_PATH}/lib/llvm/bin/clang++" \
     CC="${ROCM_PATH}/lib/llvm/bin/clang" MAX_JOBS="${BUILD_JOBS}" CARGO_BUILD_JOBS=16 \
-    VLLM_VERSION_OVERRIDE=0.31.0+rocm10.2.0a20261015.llvmfix \
+    VLLM_VERSION_OVERRIDE="${VLLM_VERSION}" \
         python3 -m pip wheel --no-build-isolation --no-deps -w /opt/vllm-wheels . && \
     python3 -m pip install --no-deps /opt/vllm-wheels/*.whl && python3 -m pip check && \
     sha256sum --check /opt/base-provenance/fixed-triton-installed.sha256 && \

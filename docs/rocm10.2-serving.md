@@ -1,5 +1,9 @@
 # Rebuilding the experimental vLLM and SGLang images
 
+For the newer matched SDK and AITER sources, use the
+[October 26 ROCm 10.3 refresh](rocm10.3-nightly.md). The recipes below retain
+the older pins for reproduction of the previous experiment.
+
 These recipes preserve the **October 15, 2026 ROCm 10.2 nightly serving stack**.
 They are separate from the October 18 Python 3.14 SuperBench/Transformer Engine
 profile. The serving images use **Python 3.12** and target **gfx1250**; their

@@ -67,6 +67,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ARG AMDGPU_TARGETS="gfx942 gfx950 gfx1250"
 ARG NUM_MAKE_JOBS=64
 ARG ROCM_VERSION=10.2.0a20261018
+ARG TORCH_VERSION=2.13.0+rocm10.2.0a20261018
+ARG TRITON_VERSION=3.8.0+git66b3f9ff.rocm10.2.0a20261018
+ARG FLYDSL_COMMIT=9dda109684ce26b97d2504503378df5266fb41b0
 ARG ROCM_SYSTEMS_COMMIT=2a8fffb7d64c59f83fe0d2efa22ed31d87d8adbf
 # Default to the matched, qualified SDK RCCL; an explicit override remains available.
 ARG RCCL_SOURCE_COMMIT=
@@ -132,7 +135,7 @@ RUN curl -fsSL "https://content.mellanox.com/DOCA/DOCA_v${DOCA_VERSION}/host/doc
     apt-get update && apt-get clean
 
 # Discover the repaired base SDK without re-expanding or replacing its A0 assets.
-RUN python3 -c 'from importlib.metadata import version; assert version("rocm-sdk-core") == "10.2.0a20261018"; assert version("torch") == "2.13.0+rocm10.2.0a20261018"' && \
+RUN python3 -c 'import sys;from importlib.metadata import version;assert version("rocm-sdk-core")==sys.argv[1];assert version("torch")==sys.argv[2]' "${ROCM_VERSION}" "${TORCH_VERSION}" && \
     ROCM_PATH="$(rocm-sdk path --root)" && \
     test -r "${ROCM_PATH}/.info/version" && \
     test -r "${ROCM_PATH}/lib/librccl.so" && \
@@ -309,6 +312,7 @@ RUN python3 -m pip install --no-deps /opt/fixed-flydsl-wheels/*.whl && \
 ARG TE_COMMIT=e7835ed1b134f56e58c575fba2455471064cab9b
 ARG AITER_COMMIT=89a47b84ac4b576339a50047e290c383c2377389
 ARG MEGATRON_COMMIT=4b4acac9a1d28ea6829c8d4f566d75698a21249d
+ARG AITER_PACKAGE_VERSION=0.0.0
 ENV SB_ROCM10_FRAMEWORK_ROOT=/opt/rocm10-frameworks \
     SB_MEGATRON_PATH=/opt/rocm10-frameworks/Megatron-LM \
     AITER_USE_SYSTEM_TRITON=1 \
@@ -327,8 +331,9 @@ RUN framework_jobs="${NUM_MAKE_JOBS}" && \
         NVTE_BUILD_MAX_JOBS="${framework_jobs}" PIP_CONSTRAINT=/tmp/rocm10-constraints.txt \
         TMPDIR=/tmp/rocm10-frameworks-scratch NVTE_USE_ROCM=1 NVTE_FRAMEWORK=pytorch \
         NVTE_ROCM_ARCH="${te_architectures}" NVTE_NO_LOCAL_VERSION=1 NVTE_CK_JIT=1 \
-        PREBUILD_KERNELS=0 BUILD_TARGET=rocm RCCL_HOME="${ROCM_PATH}" && \
-    python3 -c 'import sys; from importlib.metadata import version; expected = {"torch": "2.13.0+rocm10.2.0a20261018", "triton": "3.8.0+git66b3f9ff.rocm10.2.0a20261018", "rocm-sdk-core": "10.2.0a20261018", "rocm-sdk-devel": "10.2.0a20261018"}; wrong = ["{}=={} (found {})".format(name, value, version(name)) for name, value in expected.items() if version(name) != value]; sys.exit("Unexpected base packages: " + ", ".join(wrong) if wrong else 0)' && \
+        PREBUILD_KERNELS=0 BUILD_TARGET=rocm RCCL_HOME="${ROCM_PATH}" \
+        SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AMD_AITER="${AITER_PACKAGE_VERSION}" && \
+    python3 -c 'import sys;from importlib.metadata import version;expected={"torch":sys.argv[1],"triton":sys.argv[2],"rocm-sdk-core":sys.argv[3],"rocm-sdk-devel":sys.argv[3]};assert all(version(n)==v for n,v in expected.items()),expected' "${TORCH_VERSION}" "${TRITON_VERSION}" "${ROCM_VERSION}" && \
     mkdir -p "${TMPDIR}" && \
     python3 -m pip install \
         pybind11==3.0.1 pydantic==2.13.5 einops==0.8.2 psutil==7.2.2 mpi4py==4.1.1 \
@@ -347,6 +352,7 @@ RUN framework_jobs="${NUM_MAKE_JOBS}" && \
     git -C "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" apply --check "${SB_HOME}/third_party/TransformerEngine/rocm_fp32_bgrad.patch" && \
     git -C "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" apply "${SB_HOME}/third_party/TransformerEngine/rocm_fp32_bgrad.patch" && \
     git -C "${SB_MEGATRON_PATH}" apply "${SB_HOME}/third_party/Megatron/megatron_core_0.19.2_rocm10.patch" && \
+    python3 -m pip install -r "${SB_ROCM10_FRAMEWORK_ROOT}/aiter/requirements.txt" && \
     python3 -m pip wheel --no-build-isolation --no-deps -w /tmp/rocm10-wheels \
         "${SB_ROCM10_FRAMEWORK_ROOT}/TransformerEngine" "${SB_ROCM10_FRAMEWORK_ROOT}/aiter" "${SB_MEGATRON_PATH}" && \
     python3 -m pip install --no-deps /tmp/rocm10-wheels/*.whl && \
@@ -389,10 +395,10 @@ RUN python3 -m pip check && \
     rm /tmp/rocm10-constraints.txt && \
     rm -rf .git
 LABEL com.superbench.source.commit="${SB_SOURCE_REVISION}" \
-    com.superbench.rocm.version="10.2.0a20261018" \
-    com.superbench.transformerengine.commit="e7835ed1b134f56e58c575fba2455471064cab9b" \
+    com.superbench.rocm.version="${ROCM_VERSION}" \
+    com.superbench.transformerengine.commit="${TE_COMMIT}" \
     com.superbench.transformerengine.profile="basic-no-fused-attention-fp32-bgrad-fallback" \
-    com.superbench.aiter.commit="89a47b84ac4b576339a50047e290c383c2377389" \
-    com.superbench.megatron.commit="4b4acac9a1d28ea6829c8d4f566d75698a21249d" \
-    com.superbench.flydsl.commit="9dda109684ce26b97d2504503378df5266fb41b0" \
+    com.superbench.aiter.commit="${AITER_COMMIT}" \
+    com.superbench.megatron.commit="${MEGATRON_COMMIT}" \
+    com.superbench.flydsl.commit="${FLYDSL_COMMIT}" \
     com.superbench.flydsl.llvm.patch="3b2c3b02c0374cba15e30739b71780ad820e6485"
